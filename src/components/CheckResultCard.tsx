@@ -90,7 +90,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
         {isExpanded && (
           <div className="mt-4 animate-fade-in">
             {result.packages && result.packages.length > 0 ? (
-              <div className="px-10">
+              <div className="relative">
                 <Carousel
                   opts={{
                     align: "start",
@@ -124,8 +124,10 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
                       </CarouselItem>
                     ))}
                   </CarouselContent>
-                  <CarouselPrevious className="left-0 bg-background/80 border-border hover:bg-background" />
-                  <CarouselNext className="right-0 bg-background/80 border-border hover:bg-background" />
+                  <div className="flex gap-2 mt-3">
+                    <CarouselPrevious className="static translate-y-0 bg-background/80 border-border hover:bg-background h-7 w-7" />
+                    <CarouselNext className="static translate-y-0 bg-background/80 border-border hover:bg-background h-7 w-7" />
+                  </div>
                 </Carousel>
               </div>
             ) : (
