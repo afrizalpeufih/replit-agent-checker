@@ -100,7 +100,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
                 >
                   <CarouselContent className="-ml-2">
                     {result.packages.map((pkg, pidx) => (
-                      <CarouselItem key={pidx} className="pl-2 basis-1/3 md:basis-1/3 sm:basis-1/2">
+                      <CarouselItem key={pidx} className="pl-2 basis-full sm:basis-1/2 lg:basis-1/3">
                         <div className="bg-background/60 border border-border/50 p-3 rounded-lg hover:bg-background/80 transition-colors h-full">
                           <div className="flex flex-col gap-2">
                             <span className="text-primary text-xs font-bold leading-snug line-clamp-2">
