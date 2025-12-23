@@ -1,0 +1,160 @@
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Loader2, Eye, EyeOff } from "lucide-react";
+
+interface TokenModalProps {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaveToken: (token: string) => void;
+}
+
+export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProps) {
+  const [tempApiKey, setTempApiKey] = useState("");
+  const [testResult, setTestResult] = useState<{ success?: boolean; error?: string } | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+
+  const handleTestToken = async () => {
+    if (!tempApiKey.trim()) {
+      setTestResult({ error: "Masukkan token terlebih dahulu" });
+      return;
+    }
+
+    setTestLoading(true);
+    setTestResult(null);
+
+    try {
+      // Simulate token test - in production this would call an API
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // For demo purposes, accept any token that's at least 8 characters
+      if (tempApiKey.length >= 8) {
+        setTestResult({ success: true });
+      } else {
+        setTestResult({ success: false, error: "Token terlalu pendek" });
+      }
+    } catch (error) {
+      setTestResult({ success: false, error: "Gagal menguji token" });
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
+  const handleSave = () => {
+    if (testResult?.success) {
+      onSaveToken(tempApiKey);
+      onOpenChange(false);
+      setTempApiKey("");
+      setTestResult(null);
+      setShowToken(false);
+    }
+  };
+
+  const handleClose = () => {
+    onOpenChange(false);
+    setTempApiKey("");
+    setTestResult(null);
+    setShowToken(false);
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-card border border-border max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-foreground text-lg font-display select-none">
+            Masukan Akses Token Anda
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <p className="text-muted-foreground text-sm select-none">
+            Anda dapat menghubungi developer untuk mendapatkan akses token secara gratis
+          </p>
+
+          <div className="space-y-2">
+            <label className="text-foreground/80 text-sm font-medium select-none">
+              INPUT TOKEN DISINI
+            </label>
+            <div className="relative">
+              <Input
+                type={showToken ? "text" : "password"}
+                placeholder="Kwqdicuxxxxxxxxx"
+                value={tempApiKey}
+                onChange={(e) => setTempApiKey(e.target.value)}
+                className="input-dark pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken(!showToken)}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showToken ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            {/* Test Result Display */}
+            {testResult && (
+              <div
+                className={`mt-3 p-3 rounded-md text-sm font-semibold animate-fade-in ${
+                  testResult.success
+                    ? "bg-success/10 border border-success/30 text-green-400"
+                    : "bg-destructive/10 border border-destructive/30 text-red-400"
+                }`}
+              >
+                {testResult.success 
+                  ? "Token valid! Akses berhasil" 
+                  : testResult.error || "Token Invalid Akses tidak berhasil"}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="flex gap-3 justify-between sm:justify-between">
+          <Button
+            onClick={handleTestToken}
+            disabled={testLoading || !tempApiKey.trim()}
+            variant="outline"
+            className="border-border text-foreground/80 hover:bg-muted"
+          >
+            {testLoading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Testing...
+              </span>
+            ) : (
+              "Test"
+            )}
+          </Button>
+          <div className="flex gap-3">
+            <Button
+              variant="ghost"
+              onClick={handleClose}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Batal
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={!testResult?.success}
+              className="btn-gradient disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Simpan Kunci
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
