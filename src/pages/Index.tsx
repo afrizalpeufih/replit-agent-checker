@@ -16,6 +16,9 @@ interface CheckResult {
   masa_tenggung?: string;
   terminated?: string;
   packages?: Package[];
+  isLoading?: boolean;
+  isError?: boolean;
+  errorMessage?: string;
 }
 
 const Index = () => {
@@ -37,61 +40,108 @@ const Index = () => {
     if (!description.trim()) return;
 
     setIsChecking(true);
-    setCheckResults(null);
+    setCheckResults([]);
     setErrorResponse(null);
 
-    try {
-      const numbers = description.split('\n').filter(n => n.trim());
-      const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          token,
-          numbers,
-          timestamp: new Date().toISOString()
-        }),
-      });
+    const numbers = description.split('\n').filter(n => n.trim());
+    
+    // Initialize all numbers as loading
+    const initialResults: CheckResult[] = numbers.map(num => ({
+      number: num,
+      status: "",
+      isLoading: true,
+    }));
+    setCheckResults(initialResults);
 
-      if (response.ok) {
-        const data = await response.json();
-        let results: CheckResult[] = [];
+    // Process each number one by one
+    for (let i = 0; i < numbers.length; i++) {
+      const num = numbers[i];
+      
+      try {
+        const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            token,
+            numbers: [num],
+            timestamp: new Date().toISOString()
+          }),
+        });
 
-        // Parse SimInfo structure from webhook
-        if (data.SimInfo && Array.isArray(data.SimInfo)) {
-          results = data.SimInfo.map((item: any) => ({
-            number: item.nomor,
-            status: item.status || "Aktif",
-            masa_tenggung: item.masaTenggang,
-            terminated: item.kadaluarsa,
-            packages: (item.PackageInfo || []).map((pkg: any) => ({
-              name: pkg.description,
-              aktif: pkg.startDate,
-              berakir: pkg.endDate,
-              quota: pkg.QuotaInfo
-            }))
-          }));
-        } else if (data.results && Array.isArray(data.results)) {
-          results = data.results;
-        } else if (Array.isArray(data)) {
-          results = data;
+        if (response.ok) {
+          const data = await response.json();
+          let result: CheckResult;
+
+          // Parse SimInfo structure from webhook
+          if (data.SimInfo && Array.isArray(data.SimInfo) && data.SimInfo.length > 0) {
+            const item = data.SimInfo[0];
+            result = {
+              number: item.nomor || num,
+              status: item.status || "Aktif",
+              masa_tenggung: item.masaTenggang,
+              terminated: item.kadaluarsa,
+              packages: (item.PackageInfo || []).map((pkg: any) => ({
+                name: pkg.description,
+                aktif: pkg.startDate,
+                berakir: pkg.endDate,
+                quota: pkg.QuotaInfo
+              })),
+              isLoading: false,
+            };
+          } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
+            result = { ...data.results[0], isLoading: false };
+          } else if (Array.isArray(data) && data.length > 0) {
+            result = { ...data[0], isLoading: false };
+          } else {
+            result = {
+              number: num,
+              status: data.status || data.myField || "Selesai",
+              isLoading: false,
+            };
+          }
+
+          // Update the specific result
+          setCheckResults(prev => {
+            if (!prev) return [result];
+            const updated = [...prev];
+            updated[i] = result;
+            return updated;
+          });
         } else {
-          results = numbers.map(n => ({
-            number: n,
-            status: data.status || data.myField || "Selesai",
-          }));
+          // Mark as error
+          setCheckResults(prev => {
+            if (!prev) return [];
+            const updated = [...prev];
+            updated[i] = {
+              number: num,
+              status: "Error",
+              isLoading: false,
+              isError: true,
+              errorMessage: `HTTP ${response.status}: Gagal mendapatkan data`
+            };
+            return updated;
+          });
         }
-        setCheckResults(results);
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        setErrorResponse(errorData.message || `HTTP ${response.status}: Terjadi kesalahan saat menghubungi webhook`);
+      } catch (error) {
+        // Mark as error
+        setCheckResults(prev => {
+          if (!prev) return [];
+          const updated = [...prev];
+          updated[i] = {
+            number: num,
+            status: "Error",
+            isLoading: false,
+            isError: true,
+            errorMessage: "Kesalahan jaringan"
+          };
+          return updated;
+        });
       }
-    } catch (error) {
-      setErrorResponse("Terjadi kesalahan jaringan atau webhook tidak aktif.");
-    } finally {
-      setIsChecking(false);
     }
+
+    setIsChecking(false);
   };
 
   return (

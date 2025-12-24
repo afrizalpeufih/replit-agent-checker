@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, Loader2, AlertCircle } from "lucide-react";
 import {
   Carousel,
   CarouselContent,
@@ -21,6 +21,9 @@ interface CheckResult {
   masa_tenggung?: string;
   terminated?: string;
   packages?: Package[];
+  isLoading?: boolean;
+  isError?: boolean;
+  errorMessage?: string;
 }
 
 interface CheckResultCardProps {
@@ -30,6 +33,46 @@ interface CheckResultCardProps {
 
 export function CheckResultCard({ result, index }: CheckResultCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // Show loading state
+  if (result.isLoading) {
+    return (
+      <div 
+        className="card-glass p-6 rounded-xl flex items-center gap-4 animate-slide-in"
+        style={{ animationDelay: `${index * 100}ms` }}
+      >
+        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        <div className="flex flex-col gap-1">
+          <span className="text-lg text-foreground font-bold font-display">
+            {result.number}
+          </span>
+          <span className="text-muted-foreground text-sm">Sedang mengecek...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (result.isError) {
+    return (
+      <div 
+        className="card-glass p-6 rounded-xl flex items-center gap-4 border-destructive/50 bg-destructive/5 animate-slide-in"
+        style={{ animationDelay: `${index * 100}ms` }}
+      >
+        <AlertCircle className="w-5 h-5 text-destructive" />
+        <div className="flex flex-col gap-1">
+          <span className="text-lg text-foreground font-bold font-display">
+            {result.number}
+          </span>
+          <span className="text-destructive text-sm">{result.errorMessage || "Gagal mendapatkan data"}</span>
+        </div>
+        <div className="ml-auto status-badge status-error">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+          Gagal
+        </div>
+      </div>
+    );
+  }
 
   const isMasaTenggangEmpty = !result.masa_tenggung || result.masa_tenggung === "N/A" || result.masa_tenggung.trim() === "";
 
