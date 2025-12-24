@@ -42,7 +42,7 @@ const Index = () => {
 
     try {
       const numbers = description.split('\n').filter(n => n.trim());
-      const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook-test/adakadabra-simsalabim", {
+      const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
