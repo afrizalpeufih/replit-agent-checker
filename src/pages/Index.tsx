@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useState, useRef } from "react";
+import { Loader2, Download, X } from "lucide-react";
+import * as XLSX from "xlsx";
 import { TokenModal } from "@/components/TokenModal";
 import { CheckResultCard } from "@/components/CheckResultCard";
 
@@ -30,6 +31,8 @@ const Index = () => {
   const [isChecking, setIsChecking] = useState(false);
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [textareaFocused, setTextareaFocused] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isCancelledRef = useRef(false);
 
   const handleCheckNow = async () => {
     if (!token) {
@@ -42,6 +45,8 @@ const Index = () => {
     setIsChecking(true);
     setCheckResults([]);
     setErrorResponse(null);
+    isCancelledRef.current = false;
+    abortControllerRef.current = new AbortController();
 
     const numbers = description.split('\n').filter(n => n.trim());
     
@@ -55,6 +60,28 @@ const Index = () => {
 
     // Process each number one by one
     for (let i = 0; i < numbers.length; i++) {
+      // Check if cancelled
+      if (isCancelledRef.current) {
+        // Mark remaining as cancelled
+        setCheckResults(prev => {
+          if (!prev) return [];
+          const updated = [...prev];
+          for (let j = i; j < numbers.length; j++) {
+            if (updated[j]?.isLoading) {
+              updated[j] = {
+                number: numbers[j],
+                status: "Dibatalkan",
+                isLoading: false,
+                isError: true,
+                errorMessage: "Pengecekan dibatalkan"
+              };
+            }
+          }
+          return updated;
+        });
+        break;
+      }
+
       const num = numbers[i];
       
       try {
@@ -68,6 +95,7 @@ const Index = () => {
             numbers: [num],
             timestamp: new Date().toISOString()
           }),
+          signal: abortControllerRef.current.signal,
         });
 
         if (response.ok) {
@@ -124,25 +152,75 @@ const Index = () => {
             return updated;
           });
         }
-      } catch (error) {
-        // Mark as error
-        setCheckResults(prev => {
-          if (!prev) return [];
-          const updated = [...prev];
-          updated[i] = {
-            number: num,
-            status: "Error",
-            isLoading: false,
-            isError: true,
-            errorMessage: "Kesalahan jaringan"
-          };
-          return updated;
-        });
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          // Request was cancelled
+          setCheckResults(prev => {
+            if (!prev) return [];
+            const updated = [...prev];
+            updated[i] = {
+              number: num,
+              status: "Dibatalkan",
+              isLoading: false,
+              isError: true,
+              errorMessage: "Pengecekan dibatalkan"
+            };
+            return updated;
+          });
+        } else {
+          // Mark as error
+          setCheckResults(prev => {
+            if (!prev) return [];
+            const updated = [...prev];
+            updated[i] = {
+              number: num,
+              status: "Error",
+              isLoading: false,
+              isError: true,
+              errorMessage: "Kesalahan jaringan"
+            };
+            return updated;
+          });
+        }
       }
     }
 
     setIsChecking(false);
   };
+
+  const handleCancel = () => {
+    isCancelledRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsChecking(false);
+    setCheckResults(null);
+  };
+
+  const handleDownloadExcel = () => {
+    if (!checkResults || checkResults.length === 0) return;
+
+    const excelData = checkResults.map((result, idx) => {
+      const packages = result.packages || [];
+      return {
+        "No": idx + 1,
+        "Nomor": result.number,
+        "Status": result.isError ? "Gagal" : (result.masa_tenggung === null || result.masa_tenggung === "" || result.masa_tenggung === "N/A" ? "Tidak Aktif" : result.status),
+        "Masa Tenggang": result.masa_tenggung || "-",
+        "Kadaluarsa": result.terminated || "-",
+        "Paket": packages.map(p => p.name).join(", ") || "-",
+        "Quota": packages.map(p => p.quota).join(", ") || "-",
+        "Error": result.errorMessage || "-"
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Hasil Pengecekan");
+    XLSX.writeFile(wb, `hasil-cek-kartu-${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const allChecksCompleted = checkResults && checkResults.length > 0 && checkResults.every(r => !r.isLoading);
 
   return (
     <div className="min-h-screen">
@@ -203,38 +281,59 @@ const Index = () => {
           {/* Form Content */}
           {activeTab === "cek-kartu" && (
             <div className="space-y-6 animate-fade-in">
-              <div className="card-glass rounded-xl p-4 sm:p-6">
-                <h3 className="text-foreground font-semibold font-display mb-2 select-none">
-                  Masukkan Nomor Kartu
-                </h3>
-                <p className="text-muted-foreground text-sm mb-4 select-none">
-                  Bisa cek 1pcs hingga 300pcs. Contoh pengisian ada di bawah ini:
-                </p>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  onFocus={() => setTextareaFocused(true)}
-                  onBlur={() => setTextareaFocused(false)}
-                  placeholder={"0898xxxxxxx\n0897xxxxxxx\n0896xxxxxxx\n0895xxxxxxx\nDan seterusnya"}
-                  className="input-dark w-full resize-none"
-                  style={{ caretColor: textareaFocused ? 'hsl(var(--foreground))' : 'transparent' }}
-                  rows={6}
-                />
-              </div>
+              {/* Input Card - Hidden when checking */}
+              {!isChecking && !checkResults && (
+                <>
+                  <div className="card-glass rounded-xl p-4 sm:p-6">
+                    <h3 className="text-foreground font-semibold font-display mb-2 select-none">
+                      Masukkan Nomor Kartu
+                    </h3>
+                    <p className="text-muted-foreground text-sm mb-4 select-none">
+                      Bisa cek 1pcs hingga 300pcs. Contoh pengisian ada di bawah ini:
+                    </p>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      onFocus={() => setTextareaFocused(true)}
+                      onBlur={() => setTextareaFocused(false)}
+                      placeholder={"0898xxxxxxx\n0897xxxxxxx\n0896xxxxxxx\n0895xxxxxxx\nDan seterusnya"}
+                      className="input-dark w-full resize-none"
+                      style={{ caretColor: textareaFocused ? 'hsl(var(--foreground))' : 'transparent' }}
+                      rows={6}
+                    />
+                  </div>
 
-              {/* Submit Button */}
-              <button
-                onClick={handleCheckNow}
-                disabled={isChecking || !description.trim()}
-                className="w-full btn-gradient py-3 rounded-lg transition-all duration-200 select-none disabled:opacity-50 disabled:cursor-not-allowed font-display"
-              >
-                {isChecking ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Memproses...
-                  </span>
-                ) : "Cek Sekarang"}
-              </button>
+                  {/* Submit Button */}
+                  <button
+                    onClick={handleCheckNow}
+                    disabled={!description.trim()}
+                    className="w-full btn-gradient py-3 rounded-lg transition-all duration-200 select-none disabled:opacity-50 disabled:cursor-not-allowed font-display"
+                  >
+                    Cek Sekarang
+                  </button>
+                </>
+              )}
+
+              {/* Cancel & Download Buttons - Shown when checking or has results */}
+              {(isChecking || checkResults) && (
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleCancel}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all font-display"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDownloadExcel}
+                    disabled={!allChecksCompleted}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all font-display disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Excel
+                  </button>
+                </div>
+              )}
 
               {/* Error Response */}
               {errorResponse && (
