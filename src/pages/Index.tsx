@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
-import { Loader2, Download, X } from "lucide-react";
+import { Download, X } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import * as XLSX from "xlsx";
 import { TokenModal } from "@/components/TokenModal";
 import { CheckResultCard } from "@/components/CheckResultCard";
@@ -351,12 +352,18 @@ const Index = () => {
               {/* Results Display */}
               {checkResults && (
                 <div className="mt-6 sm:mt-8 space-y-4">
-                  <h4 className="text-foreground font-semibold font-display flex items-center gap-2">
-                    Hasil Pengecekan
-                    <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                      {checkResults.length} Nomor
-                    </span>
-                  </h4>
+                  <div className="flex items-center gap-4">
+                    <h4 className="text-foreground font-semibold font-display flex items-center gap-2 shrink-0">
+                      Hasil Pengecekan
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                        {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
+                      </span>
+                    </h4>
+                    <Progress 
+                      value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100} 
+                      className="flex-1 h-2"
+                    />
+                  </div>
                   <div className="grid gap-4">
                     {checkResults.map((result, idx) => (
                       <CheckResultCard key={idx} result={result} index={idx} />
