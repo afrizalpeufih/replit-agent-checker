@@ -31,7 +31,12 @@ interface CheckResultCardProps {
 export function CheckResultCard({ result, index }: CheckResultCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const isMasaTenggangEmpty = !result.masa_tenggung || result.masa_tenggung === "N/A" || result.masa_tenggung.trim() === "";
+
   const getStatusStyle = () => {
+    if (isMasaTenggangEmpty) {
+      return "status-badge status-error";
+    }
     const status = result.status?.toLowerCase();
     if (status === "mantap" || status === "aktif" || status === "success") {
       return "status-badge status-success";
@@ -43,6 +48,9 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
   };
 
   const getStatusDotStyle = () => {
+    if (isMasaTenggangEmpty) {
+      return "bg-red-400";
+    }
     const status = result.status?.toLowerCase();
     if (status === "mantap" || status === "aktif" || status === "success") {
       return "bg-green-400 animate-pulse";
@@ -51,6 +59,13 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
       return "bg-red-400";
     }
     return "bg-blue-400";
+  };
+
+  const getStatusText = () => {
+    if (isMasaTenggangEmpty) {
+      return "Tidak Aktif";
+    }
+    return result.status || "Selesai";
   };
 
   return (
@@ -73,7 +88,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
         </div>
         <div className={getStatusStyle()}>
           <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotStyle()}`}></span>
-          {result.status || "Selesai"}
+          {getStatusText()}
         </div>
       </div>
 
