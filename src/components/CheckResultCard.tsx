@@ -34,6 +34,12 @@ interface CheckResultCardProps {
 export function CheckResultCard({ result, index }: CheckResultCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const formatNumber = (value: string) => {
+    const num = parseInt(value, 10);
+    if (isNaN(num)) return value;
+    return num.toLocaleString('id-ID');
+  };
+
   // Show loading state
   if (result.isLoading) {
     return (
@@ -175,7 +181,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
                               </div>
                             </div>
                             <span className="text-accent text-xs font-bold mt-1">
-                              {pkg.quota || "-"}
+                              {formatNumber(pkg.quota) || "-"}
                             </span>
                           </div>
                         </div>
