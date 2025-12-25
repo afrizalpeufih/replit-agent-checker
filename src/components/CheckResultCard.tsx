@@ -175,7 +175,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
                               </div>
                             </div>
                             <span className="text-accent text-xs font-bold mt-1">
-                              {pkg.quota || "-"} MB
+                              {pkg.quota || "-"}
                             </span>
                           </div>
                         </div>
