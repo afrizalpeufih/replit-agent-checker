@@ -40,6 +40,14 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
     return num.toLocaleString('id-ID');
   };
 
+  const getQuotaColor = (value: string) => {
+    const num = parseInt(value, 10);
+    if (isNaN(num)) return "text-accent";
+    if (num >= 1000) return "text-green-500";
+    if (num >= 250) return "text-yellow-500";
+    return "text-red-500";
+  };
+
   // Show loading state
   if (result.isLoading) {
     return (
@@ -180,8 +188,8 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
                                 <span className="text-foreground/80 font-semibold">{pkg.berakir || "-"}</span>
                               </div>
                             </div>
-                            <span className="text-accent text-xs font-bold mt-1">
-                              {formatNumber(pkg.quota) || "-"}
+                            <span className={`${getQuotaColor(pkg.quota)} text-xs font-bold mt-1`}>
+                              {pkg.quota ? `${formatNumber(pkg.quota)} MB` : "-"}
                             </span>
                           </div>
                         </div>
