@@ -358,6 +358,12 @@ const Index = () => {
                       <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
                         {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
                       </span>
+                      <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
+                        {checkResults.filter(r => !r.isLoading && !r.isError && !r.terminated).length} Aktif
+                      </span>
+                      <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
+                        {checkResults.filter(r => !r.isLoading && (r.isError || r.terminated)).length} Tidak Aktif
+                      </span>
                     </h4>
                     <Progress 
                       value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100} 
