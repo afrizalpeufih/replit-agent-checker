@@ -359,10 +359,13 @@ const Index = () => {
                         {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
                       </span>
                       <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
-                        {checkResults.filter(r => !r.isLoading && !r.isError && !r.terminated).length} Aktif
+                        {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && (r.status?.toLowerCase() === "aktif" || r.status?.toLowerCase() === "mantap" || r.status?.toLowerCase() === "success")).length} Aktif
+                      </span>
+                      <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                        {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && r.status?.toLowerCase() === "masa tenggang").length} Masa Tenggang
                       </span>
                       <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
-                        {checkResults.filter(r => !r.isLoading && (r.isError || r.terminated)).length} Tidak Aktif
+                        {checkResults.filter(r => !r.isLoading && (r.isError || !r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "")).length} Tidak Aktif
                       </span>
                     </h4>
                     <Progress 
