@@ -33,7 +33,7 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
 
     try {
       // Test token with actual webhook endpoint
-      const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/cektoken", {
+      const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook-test/cektoken", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
