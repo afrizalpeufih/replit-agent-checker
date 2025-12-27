@@ -57,7 +57,9 @@ const Index = () => {
     isCancelledRef.current = false;
     abortControllerRef.current = new AbortController();
 
-    const numbers = description.split('\n').filter(n => n.trim());
+    // Split by newline, trim, and remove unique duplicates
+    const rawNumbers = description.split('\n').map(n => n.trim()).filter(n => n);
+    const numbers = Array.from(new Set(rawNumbers));
 
     // Initialize all numbers as loading
     const initialResults: CheckResult[] = numbers.map(num => ({
@@ -285,8 +287,8 @@ const Index = () => {
             <button
               onClick={() => setActiveTab("cek-kartu")}
               className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-kartu"
-                  ? "tab-active"
-                  : "tab-inactive"
+                ? "tab-active"
+                : "tab-inactive"
                 }`}
             >
               Cek Kartu Perdana
@@ -294,8 +296,8 @@ const Index = () => {
             <button
               onClick={() => setActiveTab("cek-voucher")}
               className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-voucher"
-                  ? "tab-active"
-                  : "tab-inactive"
+                ? "tab-active"
+                : "tab-inactive"
                 }`}
             >
               Cek Voucher
