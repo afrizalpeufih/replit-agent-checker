@@ -32,17 +32,28 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
     setTestResult(null);
 
     try {
-      // Simulate token test - in production this would call an API
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // For demo purposes, accept any token that's at least 8 characters
-      if (tempApiKey.length >= 8) {
+      // Test token with actual webhook endpoint
+      const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/cektoken", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token: tempApiKey,
+          numbers: ["0895321806147"], // Test number for validation
+          timestamp: new Date().toISOString()
+        }),
+      });
+
+      if (response.ok) {
         setTestResult({ success: true });
+      } else if (response.status === 401 || response.status === 403) {
+        setTestResult({ success: false, error: "Token tidak valid atau tidak memiliki akses" });
       } else {
-        setTestResult({ success: false, error: "Token terlalu pendek" });
+        setTestResult({ success: false, error: `Error ${response.status}: Gagal validasi token` });
       }
     } catch (error) {
-      setTestResult({ success: false, error: "Gagal menguji token" });
+      setTestResult({ success: false, error: "Gagal menghubungi server validasi" });
     } finally {
       setTestLoading(false);
     }
@@ -107,14 +118,13 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
             {/* Test Result Display */}
             {testResult && (
               <div
-                className={`mt-3 p-3 rounded-md text-sm font-semibold animate-fade-in ${
-                  testResult.success
-                    ? "bg-success/10 border border-success/30 text-green-400"
-                    : "bg-destructive/10 border border-destructive/30 text-red-400"
-                }`}
+                className={`mt-3 p-3 rounded-md text-sm font-semibold animate-fade-in ${testResult.success
+                  ? "bg-success/10 border border-success/30 text-green-400"
+                  : "bg-destructive/10 border border-destructive/30 text-red-400"
+                  }`}
               >
-                {testResult.success 
-                  ? "Token valid! Akses berhasil" 
+                {testResult.success
+                  ? "Token valid! Akses berhasil"
                   : testResult.error || "Token Invalid Akses tidak berhasil"}
               </div>
             )}
