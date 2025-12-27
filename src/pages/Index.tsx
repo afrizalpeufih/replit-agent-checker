@@ -35,6 +35,14 @@ const Index = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const isCancelledRef = useRef(false);
 
+  // Validate phone number prefix
+  const isValidPhoneNumber = (number: string): boolean => {
+    const cleanNumber = number.trim();
+    // Check if starts with 0895, 0896, 0897, 0898, or 0899
+    const validPrefixes = ['0895', '0896', '0897', '0898', '0899'];
+    return validPrefixes.some(prefix => cleanNumber.startsWith(prefix));
+  };
+
   const handleCheckNow = async () => {
     if (!token) {
       setIsTokenModalOpen(true);
@@ -50,7 +58,7 @@ const Index = () => {
     abortControllerRef.current = new AbortController();
 
     const numbers = description.split('\n').filter(n => n.trim());
-    
+
     // Initialize all numbers as loading
     const initialResults: CheckResult[] = numbers.map(num => ({
       number: num,
@@ -84,7 +92,24 @@ const Index = () => {
       }
 
       const num = numbers[i];
-      
+
+      // Validate number format before API call
+      if (!isValidPhoneNumber(num)) {
+        setCheckResults(prev => {
+          if (!prev) return [];
+          const updated = [...prev];
+          updated[i] = {
+            number: num,
+            status: "Format Salah",
+            isLoading: false,
+            isError: true,
+            errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
+          };
+          return updated;
+        });
+        continue; // Skip API call for invalid numbers
+      }
+
       try {
         const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim", {
           method: "POST",
@@ -259,21 +284,19 @@ const Index = () => {
           <div className="flex gap-3 sm:gap-4 mb-6 sm:mb-8">
             <button
               onClick={() => setActiveTab("cek-kartu")}
-              className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${
-                activeTab === "cek-kartu"
+              className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-kartu"
                   ? "tab-active"
                   : "tab-inactive"
-              }`}
+                }`}
             >
               Cek Kartu Perdana
             </button>
             <button
               onClick={() => setActiveTab("cek-voucher")}
-              className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${
-                activeTab === "cek-voucher"
+              className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-voucher"
                   ? "tab-active"
                   : "tab-inactive"
-              }`}
+                }`}
             >
               Cek Voucher
             </button>
@@ -368,8 +391,8 @@ const Index = () => {
                         {checkResults.filter(r => !r.isLoading && (r.isError || !r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "")).length} Tidak Aktif
                       </span>
                     </h4>
-                    <Progress 
-                      value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100} 
+                    <Progress
+                      value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100}
                       className="flex-1 h-2"
                     />
                   </div>
