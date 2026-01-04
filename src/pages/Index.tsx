@@ -126,6 +126,25 @@ const Index = () => {
         const num = numbers[i];
         activeWorkers++;
 
+        // Validate number length (max 13 digits)
+        if (num.length > 13) {
+          setCheckResults(prev => {
+            if (!prev) return [];
+            const updated = [...prev];
+            updated[i] = {
+              number: num,
+              status: "Gagal",
+              isLoading: false,
+              isError: true,
+              errorMessage: "Maksimal 13 digit"
+            };
+            return updated;
+          });
+          activeWorkers--;
+          processNext();
+          return;
+        }
+
         // Validate number format before API call
         if (!isValidPhoneNumber(num)) {
           setCheckResults(prev => {
@@ -750,7 +769,10 @@ const Index = () => {
                         {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && r.status?.toLowerCase() === "masa tenggang").length} Masa Tenggang
                       </span>
                       <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
-                        {checkResults.filter(r => !r.isLoading && (r.isError || !r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "")).length} Tidak Aktif
+                        {checkResults.filter(r => !r.isLoading && !r.isError && (!r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "") && r.status?.toLowerCase() !== "unknown").length} Tidak Aktif
+                      </span>
+                      <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
+                        {checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
                       </span>
                     </h4>
                     <Progress
@@ -838,6 +860,9 @@ const Index = () => {
                       </span>
                       <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
                         {voucherCheckResults.filter(r => !r.isLoading && !r.isError && (r.status?.toLowerCase().includes("not") || r.status?.toLowerCase().includes("gagal"))).length} Not Inject
+                      </span>
+                      <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
+                        {voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
                       </span>
                     </h4>
                     <Progress
