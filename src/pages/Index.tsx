@@ -21,6 +21,7 @@ interface CheckResult {
   isLoading?: boolean;
   isError?: boolean;
   errorMessage?: string;
+  callPlan?: string;
 }
 
 const Index = () => {
@@ -128,6 +129,32 @@ const Index = () => {
 
         if (response.ok) {
           const data = await response.json();
+
+          // Debug: Log response untuk cek struktur data
+          console.log('=== WEBHOOK RESPONSE DEBUG ===');
+          console.log('Full response data:', data);
+          console.log('Root level callPlan:', data.callPlan);
+
+          // Cek di dalam SimInfo
+          if (data.SimInfo && Array.isArray(data.SimInfo) && data.SimInfo.length > 0) {
+            console.log('SimInfo[0]:', data.SimInfo[0]);
+            console.log('SimInfo[0].callPlan:', data.SimInfo[0].callPlan);
+            console.log('All SimInfo[0] keys:', Object.keys(data.SimInfo[0]));
+          }
+
+          // Cek di dalam results
+          if (data.results && Array.isArray(data.results) && data.results.length > 0) {
+            console.log('results[0]:', data.results[0]);
+            console.log('results[0].callPlan:', data.results[0].callPlan);
+          }
+
+          // Jika data adalah array langsung
+          if (Array.isArray(data) && data.length > 0) {
+            console.log('data[0]:', data[0]);
+            console.log('data[0].callPlan:', data[0].callPlan);
+          }
+          console.log('==============================');
+
           let result: CheckResult;
 
           // Parse SimInfo structure from webhook
@@ -145,16 +172,18 @@ const Index = () => {
                 quota: pkg.QuotaInfo
               })),
               isLoading: false,
+              callPlan: item.callPlan,  // Ambil dari item.callPlan, bukan data.callPlan
             };
           } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
-            result = { ...data.results[0], isLoading: false };
+            result = { ...data.results[0], isLoading: false, callPlan: data.callPlan || data.results[0].callPlan };
           } else if (Array.isArray(data) && data.length > 0) {
-            result = { ...data[0], isLoading: false };
+            result = { ...data[0], isLoading: false, callPlan: data[0].callPlan };
           } else {
             result = {
               number: num,
               status: data.status || data.myField || "Selesai",
               isLoading: false,
+              callPlan: data.callPlan,
             };
           }
 

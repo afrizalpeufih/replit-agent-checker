@@ -24,6 +24,7 @@ interface CheckResult {
   isLoading?: boolean;
   isError?: boolean;
   errorMessage?: string;
+  callPlan?: string;
 }
 
 interface CheckResultCardProps {
@@ -51,7 +52,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
   // Show loading state
   if (result.isLoading) {
     return (
-      <div 
+      <div
         className="card-glass p-6 rounded-xl flex items-center gap-4 animate-slide-in"
         style={{ animationDelay: `${index * 100}ms` }}
       >
@@ -69,7 +70,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
   // Show error state
   if (result.isError) {
     return (
-      <div 
+      <div
         className="card-glass p-6 rounded-xl flex items-center gap-4 border-destructive/50 bg-destructive/5 animate-slide-in"
         style={{ animationDelay: `${index * 100}ms` }}
       >
@@ -126,7 +127,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
   };
 
   return (
-    <div 
+    <div
       className="card-glass p-6 rounded-xl flex flex-col gap-6 hover:border-primary/30 transition-all duration-300 shadow-lg hover:shadow-primary/10 animate-slide-in"
       style={{ animationDelay: `${index * 100}ms` }}
     >
@@ -136,6 +137,11 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
           <span className="text-2xl text-foreground font-bold font-display tracking-tight truncate">
             {result.number || "Nomor Tidak Diketahui"}
           </span>
+          {result.callPlan && (
+            <span className="text-xs text-muted-foreground/80 font-medium -mt-0.5">
+              Callplan : {result.callPlan}
+            </span>
+          )}
           <span className="text-muted-foreground text-sm">
             Masa Tenggang: <span className="text-foreground/80 font-semibold">{result.masa_tenggung || "N/A"}</span>
           </span>
