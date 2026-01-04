@@ -377,8 +377,8 @@ const Index = () => {
               {/* Results Display */}
               {checkResults && (
                 <div className="mt-6 sm:mt-8 space-y-4">
-                  <div className="flex items-center gap-4">
-                    <h4 className="text-foreground font-semibold font-display flex items-center gap-2 shrink-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
                       Hasil Pengecekan
                       <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
                         {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
@@ -395,7 +395,7 @@ const Index = () => {
                     </h4>
                     <Progress
                       value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100}
-                      className="flex-1 h-2"
+                      className="w-full sm:flex-1 h-2"
                     />
                   </div>
                   <div className="grid gap-4">
