@@ -476,15 +476,68 @@ const Index = () => {
   const handleDownloadVoucherExcel = () => {
     if (!voucherCheckResults || voucherCheckResults.length === 0) return;
 
+    // Helper function to safely extract field value with case-insensitive matching
+    const getField = (obj: any, fieldName: string): string => {
+      if (!obj) return "-";
+      // Try exact match first
+      if (obj[fieldName] !== undefined && obj[fieldName] !== null && obj[fieldName] !== "null" && obj[fieldName] !== "") {
+        return String(obj[fieldName]);
+      }
+      // Try lowercase
+      const lowerKey = fieldName.toLowerCase();
+      for (const key of Object.keys(obj)) {
+        if (key.toLowerCase() === lowerKey && obj[key] !== undefined && obj[key] !== null && obj[key] !== "null" && obj[key] !== "") {
+          return String(obj[key]);
+        }
+      }
+      return "-";
+    };
+
     const excelData = voucherCheckResults.map((result, idx) => {
-      const isInjected = result.status?.toLowerCase() === "injected";
-      const isNotInject = result.status?.toLowerCase() === "not inject" || result.status?.toLowerCase() === "notinject";
+      const info = result.additionalInfo || {};
+
+      // Extract all fields with fallback to camelCase and PascalCase
+      const serialNumber = getField(info, 'SerialNumber') !== "-" ? getField(info, 'SerialNumber') :
+        getField(info, 'serialNumber') !== "-" ? getField(info, 'serialNumber') :
+          result.serialNumber || "-";
+
+      const indukNumber = getField(info, 'IndukNumber') !== "-" ? getField(info, 'IndukNumber') :
+        getField(info, 'indukNumber') !== "-" ? getField(info, 'indukNumber') :
+          serialNumber;
+
+      const description = getField(info, 'Description') !== "-" ? getField(info, 'Description') :
+        getField(info, 'description');
+
+      const unlockDate = getField(info, 'UnlockDate') !== "-" ? getField(info, 'UnlockDate') :
+        getField(info, 'unlockDate');
+
+      const expiryDate = getField(info, 'ExpiryDate') !== "-" ? getField(info, 'ExpiryDate') :
+        getField(info, 'expiryDate');
+
+      const voucherStatus = getField(info, 'VoucherStatus') !== "-" ? getField(info, 'VoucherStatus') :
+        getField(info, 'voucherStatus');
+
+      const topupDate = getField(info, 'TopupDate') !== "-" ? getField(info, 'TopupDate') :
+        getField(info, 'topupDate');
+
+      const topupMSISDN = getField(info, 'TopupMSISDN') !== "-" ? getField(info, 'TopupMSISDN') :
+        getField(info, 'topupMSISDN');
+
+      const unlockRET = getField(info, 'UnlockRET') !== "-" ? getField(info, 'UnlockRET') :
+        getField(info, 'unlockRET');
 
       return {
         "No": idx + 1,
-        "Serial Number": result.serialNumber,
-        "Status": result.isError ? "Gagal" : result.status,
-        "Kategori": isInjected ? "Injected" : isNotInject ? "Not Inject" : "-",
+        "Induk Number": indukNumber,
+        "Serial Number": serialNumber,
+        "Description": description,
+        "Status Validasi": result.status || "-",
+        "Voucher Status": voucherStatus,
+        "Unlock Date": unlockDate,
+        "Expiry Date": expiryDate,
+        "Topup Date": topupDate,
+        "Topup MSISDN": topupMSISDN,
+        "Unlock RET": unlockRET,
         "Error": result.errorMessage || "-"
       };
     });
