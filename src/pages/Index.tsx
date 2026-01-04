@@ -4,6 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import * as XLSX from "xlsx";
 import { TokenModal } from "@/components/TokenModal";
 import { CheckResultCard } from "@/components/CheckResultCard";
+import { VoucherCheckResultCard } from "@/components/VoucherCheckResultCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +35,15 @@ interface CheckResult {
   callPlan?: string;
 }
 
+interface VoucherCheckResult {
+  serialNumber: string;
+  status: string;
+  isLoading?: boolean;
+  isError?: boolean;
+  errorMessage?: string;
+  additionalInfo?: any;
+}
+
 const Index = () => {
   const [token, setToken] = useState("");
   const [activeTab, setActiveTab] = useState<"cek-kartu" | "cek-voucher">("cek-kartu");
@@ -45,11 +55,22 @@ const Index = () => {
   const [textareaFocused, setTextareaFocused] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Voucher-specific state
+  const [voucherDescription, setVoucherDescription] = useState("");
+  const [voucherCheckResults, setVoucherCheckResults] = useState<VoucherCheckResult[] | null>(null);
+  const [isCheckingVoucher, setIsCheckingVoucher] = useState(false);
+  const [voucherTextareaFocused, setVoucherTextareaFocused] = useState(false);
+  const voucherAbortControllerRef = useRef<AbortController | null>(null);
+
   const isCancelledRef = useRef(false);
 
   // Limit Check State
   const [isLimitAlertOpen, setIsLimitAlertOpen] = useState(false);
   const [pendingNumbers, setPendingNumbers] = useState<string[]>([]);
+
+  // Voucher Limit Check State
+  const [isVoucherLimitAlertOpen, setIsVoucherLimitAlertOpen] = useState(false);
+  const [pendingVoucherSerials, setPendingVoucherSerials] = useState<string[]>([]);
 
   // Validate phone number prefix
   const isValidPhoneNumber = (number: string): boolean => {
@@ -57,6 +78,13 @@ const Index = () => {
     // Check if starts with 0895, 0896, 0897, 0898, or 0899
     const validPrefixes = ['0895', '0896', '0897', '0898', '0899'];
     return validPrefixes.some(prefix => cleanNumber.startsWith(prefix));
+  };
+
+  // Validate voucher serial number
+  const isValidVoucherSerial = (serial: string): boolean => {
+    const cleanSerial = serial.trim();
+    // Must start with 350 and be max 12 digits
+    return cleanSerial.startsWith('350') && cleanSerial.length <= 12 && /^\d+$/.test(cleanSerial);
   };
 
   const processNumbers = async (numbers: string[]) => {
@@ -264,6 +292,209 @@ const Index = () => {
     setIsChecking(false);
     setCheckResults(null);
   };
+
+  // Voucher processing functions
+  const processVoucherSerials = async (serials: string[]) => {
+    setIsCheckingVoucher(true);
+    setVoucherCheckResults([]);
+    isCancelledRef.current = false;
+    voucherAbortControllerRef.current = new AbortController();
+
+    // Initialize all serials as loading
+    const initialResults: VoucherCheckResult[] = serials.map(serial => ({
+      serialNumber: serial,
+      status: "",
+      isLoading: true,
+    }));
+    setVoucherCheckResults(initialResults);
+
+    const CONCURRENCY_LIMIT = 5;
+    let currentIndex = 0;
+    let activeWorkers = 0;
+
+    return new Promise<void>((resolve) => {
+      const processNext = async () => {
+        if (isCancelledRef.current || (currentIndex >= serials.length && activeWorkers === 0)) {
+          if (activeWorkers === 0) {
+            setIsCheckingVoucher(false);
+            resolve();
+          }
+          return;
+        }
+
+        if (currentIndex >= serials.length) {
+          return;
+        }
+
+        const i = currentIndex++;
+        const serial = serials[i];
+        activeWorkers++;
+
+        // Validate serial format before API call
+        if (!isValidVoucherSerial(serial)) {
+          setVoucherCheckResults(prev => {
+            if (!prev) return [];
+            const updated = [...prev];
+            updated[i] = {
+              serialNumber: serial,
+              status: "Format Salah",
+              isLoading: false,
+              isError: true,
+              errorMessage: "Serial harus berawalan 350 dan maksimal 12 digit"
+            };
+            return updated;
+          });
+          activeWorkers--;
+          processNext();
+          return;
+        }
+
+        try {
+          const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/voucherSPV1", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              token,
+              serials: [serial],
+              timestamp: new Date().toISOString()
+            }),
+            signal: voucherAbortControllerRef.current?.signal,
+          });
+
+          if (!isCancelledRef.current) {
+            if (response.ok) {
+              const data = await response.json();
+              let result: VoucherCheckResult;
+
+
+              // Parse response - use 'Validasi' field for status (check multiple casings)
+              // Validasi: "Injected" or "Not Inject"
+              const validasiStatus = data.Validasi || data.validasi || data.status || "Unknown";
+
+              result = {
+                serialNumber: data.SerialNumber || serial,
+                status: validasiStatus,
+                isLoading: false,
+                additionalInfo: data
+              };
+
+
+              setVoucherCheckResults(prev => {
+                if (!prev) return [result];
+                const updated = [...prev];
+                updated[i] = result;
+                return updated;
+              });
+            } else {
+              setVoucherCheckResults(prev => {
+                if (!prev) return [];
+                const updated = [...prev];
+                updated[i] = {
+                  serialNumber: serial,
+                  status: "Error",
+                  isLoading: false,
+                  isError: true,
+                  errorMessage: `HTTP ${response.status}`
+                };
+                return updated;
+              });
+            }
+          }
+        } catch (error: any) {
+          if (!isCancelledRef.current) {
+            setVoucherCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+              updated[i] = {
+                serialNumber: serial,
+                status: "Error",
+                isLoading: false,
+                isError: true,
+                errorMessage: error.name === 'AbortError' ? "Cancelled" : "Network Error"
+              };
+              return updated;
+            });
+          }
+        } finally {
+          activeWorkers--;
+          if (!isCancelledRef.current) {
+            processNext();
+          }
+
+          if (activeWorkers === 0 && currentIndex >= serials.length) {
+            setIsCheckingVoucher(false);
+            resolve();
+          }
+        }
+      };
+
+      // Start initial workers
+      for (let w = 0; w < CONCURRENCY_LIMIT; w++) {
+        processNext();
+      }
+    });
+  };
+
+  const handleCheckVoucherNow = () => {
+    if (!token) {
+      setIsTokenModalOpen(true);
+      return;
+    }
+
+    if (!voucherDescription.trim()) return;
+
+    const rawSerials = voucherDescription.split('\n').map(s => s.trim()).filter(s => s);
+    const serials = Array.from(new Set(rawSerials));
+
+    if (serials.length > 750) {
+      setPendingVoucherSerials(serials);
+      setIsVoucherLimitAlertOpen(true);
+      return;
+    }
+
+    processVoucherSerials(serials);
+  };
+
+  const handleProceedWithVoucherLimit = () => {
+    const limitedSerials = pendingVoucherSerials.slice(0, 750);
+    setIsVoucherLimitAlertOpen(false);
+    setVoucherDescription(limitedSerials.join('\n'));
+    processVoucherSerials(limitedSerials);
+  };
+
+  const handleCancelVoucher = () => {
+    isCancelledRef.current = true;
+    if (voucherAbortControllerRef.current) {
+      voucherAbortControllerRef.current.abort();
+    }
+    setIsCheckingVoucher(false);
+    setVoucherCheckResults(null);
+  };
+
+  const handleDownloadVoucherExcel = () => {
+    if (!voucherCheckResults || voucherCheckResults.length === 0) return;
+
+    const excelData = voucherCheckResults.map((result, idx) => {
+      const isInjected = result.status?.toLowerCase() === "injected";
+      const isNotInject = result.status?.toLowerCase() === "not inject" || result.status?.toLowerCase() === "notinject";
+
+      return {
+        "No": idx + 1,
+        "Serial Number": result.serialNumber,
+        "Status": result.isError ? "Gagal" : result.status,
+        "Kategori": isInjected ? "Injected" : isNotInject ? "Not Inject" : "-",
+        "Error": result.errorMessage || "-"
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Hasil Cek Voucher");
+    XLSX.writeFile(wb, `hasil-cek-voucher-${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
 
   const handleDownloadExcel = () => {
     if (!checkResults || checkResults.length === 0) return;
@@ -485,16 +716,89 @@ const Index = () => {
           )}
 
           {activeTab === "cek-voucher" && (
-            <div className="text-center py-12 animate-fade-in">
-              <div className="card-glass rounded-xl p-8 sm:p-12">
-                <div className="text-4xl sm:text-5xl mb-4">🎟️</div>
-                <p className="text-muted-foreground select-none font-display text-lg">
-                  Fitur Cek Voucher akan segera hadir
-                </p>
-                <p className="text-muted-foreground/60 text-sm mt-2">
-                  Kami sedang mengembangkan fitur ini untuk Anda
-                </p>
-              </div>
+            <div className="space-y-6 animate-fade-in">
+              {/* Input Card - Hidden when checking */}
+              {!isCheckingVoucher && !voucherCheckResults && (
+                <>
+                  <div className="card-glass rounded-xl p-4 sm:p-6">
+                    <h3 className="text-foreground font-semibold font-display mb-2 select-none">
+                      Masukkan Serial Number Voucher
+                    </h3>
+                    <p className="text-muted-foreground text-sm mb-4 select-none">
+                      Bisa cek 1pcs hingga 300pcs. Serial number wajib berawalan 350 dan maks 12 digit:
+                    </p>
+                    <textarea
+                      value={voucherDescription}
+                      onChange={(e) => setVoucherDescription(e.target.value)}
+                      onFocus={() => setVoucherTextareaFocused(true)}
+                      onBlur={() => setVoucherTextareaFocused(false)}
+                      placeholder={"350xxxxxxx\n350xxxxxxx\n350xxxxxxx\nDan seterusnya"}
+                      className="input-dark w-full resize-none"
+                      style={{ caretColor: voucherTextareaFocused ? 'hsl(var(--foreground))' : 'transparent' }}
+                      rows={6}
+                    />
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    onClick={handleCheckVoucherNow}
+                    disabled={!voucherDescription.trim()}
+                    className="w-full btn-gradient py-3 rounded-lg transition-all duration-200 select-none disabled:opacity-50 disabled:cursor-not-allowed font-display"
+                  >
+                    Cek Sekarang
+                  </button>
+                </>
+              )}
+
+              {/* Cancel & Download Buttons - Shown when checking or has results */}
+              {(isCheckingVoucher || voucherCheckResults) && (
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleCancelVoucher}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all font-display"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDownloadVoucherExcel}
+                    disabled={!voucherCheckResults || voucherCheckResults.some(r => r.isLoading)}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all font-display disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Excel
+                  </button>
+                </div>
+              )}
+
+              {/* Results Display */}
+              {voucherCheckResults && (
+                <div className="mt-6 sm:mt-8 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
+                      Hasil Pengecekan
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                        {voucherCheckResults.filter(r => !r.isLoading).length}/{voucherCheckResults.length} Voucher
+                      </span>
+                      <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
+                        {voucherCheckResults.filter(r => !r.isLoading && !r.isError && r.status?.toLowerCase() === "injected").length} Injected
+                      </span>
+                      <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
+                        {voucherCheckResults.filter(r => !r.isLoading && !r.isError && (r.status?.toLowerCase().includes("not") || r.status?.toLowerCase().includes("gagal"))).length} Not Inject
+                      </span>
+                    </h4>
+                    <Progress
+                      value={(voucherCheckResults.filter(r => !r.isLoading).length / voucherCheckResults.length) * 100}
+                      className="w-full sm:flex-1 h-2"
+                    />
+                  </div>
+                  <div className="grid gap-4">
+                    {voucherCheckResults.map((result) => (
+                      <VoucherCheckResultCard key={result.serialNumber} result={result} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -520,6 +824,24 @@ const Index = () => {
             <AlertDialogCancel onClick={() => setIsLimitAlertOpen(false)}>Batal</AlertDialogCancel>
             <AlertDialogAction onClick={handleProceedWithLimit}>
               Ya, Proses 300 Nomor
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Voucher Limit Warning Dialog */}
+      <AlertDialog open={isVoucherLimitAlertOpen} onOpenChange={setIsVoucherLimitAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Maksimal input 750 voucher</AlertDialogTitle>
+            <AlertDialogDescription>
+              Jumlah serial voucher yang Anda inputkan melebihi batas 750. Apakah Anda ingin tetap melanjutkan proses untuk 750 voucher saja?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsVoucherLimitAlertOpen(false)}>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={handleProceedWithVoucherLimit}>
+              Ya, Proses 750 Voucher
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
