@@ -137,22 +137,26 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
           <span className="text-2xl text-foreground font-bold font-display tracking-tight truncate">
             {result.number || "Nomor Tidak Diketahui"}
           </span>
-          {result.callPlan && (
-            <span className="text-xs text-muted-foreground/80 font-medium -mt-0.5">
-              Callplan : {result.callPlan}
-            </span>
-          )}
-          <span className="text-muted-foreground text-sm">
-            Masa Tenggang: <span className="text-foreground/80 font-semibold">{result.masa_tenggung || "N/A"}</span>
-          </span>
-          <span className="text-muted-foreground text-sm">
-            Terminated: <span className="text-foreground/80 font-semibold">{result.terminated || "N/A"}</span>
-          </span>
         </div>
         <div className={getStatusStyle()}>
           <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotStyle()}`}></span>
           {getStatusText()}
         </div>
+      </div>
+
+      {/* Info Details - Full width */}
+      <div className="flex flex-col gap-1 -mt-4">
+        {result.callPlan && (
+          <span className="text-xs text-muted-foreground/80 font-medium">
+            Callplan : {result.callPlan}
+          </span>
+        )}
+        <span className="text-muted-foreground text-sm">
+          Masa Tenggang: <span className="text-foreground/80 font-semibold">{result.masa_tenggung || "N/A"}</span>
+        </span>
+        <span className="text-muted-foreground text-sm">
+          Terminated: <span className="text-foreground/80 font-semibold">{result.terminated || "N/A"}</span>
+        </span>
       </div>
 
       {/* Detail section */}
