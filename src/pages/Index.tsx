@@ -130,30 +130,7 @@ const Index = () => {
         if (response.ok) {
           const data = await response.json();
 
-          // Debug: Log response untuk cek struktur data
-          console.log('=== WEBHOOK RESPONSE DEBUG ===');
-          console.log('Full response data:', data);
-          console.log('Root level callPlan:', data.callPlan);
 
-          // Cek di dalam SimInfo
-          if (data.SimInfo && Array.isArray(data.SimInfo) && data.SimInfo.length > 0) {
-            console.log('SimInfo[0]:', data.SimInfo[0]);
-            console.log('SimInfo[0].callPlan:', data.SimInfo[0].callPlan);
-            console.log('All SimInfo[0] keys:', Object.keys(data.SimInfo[0]));
-          }
-
-          // Cek di dalam results
-          if (data.results && Array.isArray(data.results) && data.results.length > 0) {
-            console.log('results[0]:', data.results[0]);
-            console.log('results[0].callPlan:', data.results[0].callPlan);
-          }
-
-          // Jika data adalah array langsung
-          if (Array.isArray(data) && data.length > 0) {
-            console.log('data[0]:', data[0]);
-            console.log('data[0].callPlan:', data[0].callPlan);
-          }
-          console.log('==============================');
 
           let result: CheckResult;
 
@@ -262,6 +239,7 @@ const Index = () => {
       return {
         "No": idx + 1,
         "Nomor": result.number,
+        "Call Plan": result.callPlan || "-",
         "Status": result.isError ? "Gagal" : (result.masa_tenggung === null || result.masa_tenggung === "" || result.masa_tenggung === "N/A" ? "Tidak Aktif" : result.status),
         "Masa Tenggang": result.masa_tenggung || "-",
         "Kadaluarsa": result.terminated || "-",
