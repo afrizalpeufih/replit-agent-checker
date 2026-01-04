@@ -172,44 +172,33 @@ export const CheckResultCard = React.memo(function CheckResultCard({ result }: C
           <div className="mt-4 animate-fade-in">
             {result.packages && result.packages.length > 0 ? (
               <div className="relative">
-                <Carousel
-                  opts={{
-                    align: "start",
-                    loop: false,
-                  }}
-                  className="w-full"
-                >
-                  <CarouselContent className="-ml-2">
-                    {result.packages.map((pkg, pidx) => (
-                      <CarouselItem key={pidx} className="pl-2 basis-full sm:basis-1/2 lg:basis-1/3">
-                        <div className="bg-background/60 border border-border/50 p-3 rounded-lg hover:bg-background/80 transition-colors h-full">
-                          <div className="flex flex-col gap-2">
-                            <span className="text-primary text-xs font-bold leading-snug line-clamp-2">
-                              {pkg.name || "Paket"}
-                            </span>
-                            <div className="space-y-0.5 text-[10px]">
-                              <div>
-                                <span className="text-muted-foreground">Aktif: </span>
-                                <span className="text-foreground/80 font-semibold">{pkg.aktif || "-"}</span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">Berakhir: </span>
-                                <span className="text-foreground/80 font-semibold">{pkg.berakir || "-"}</span>
-                              </div>
-                            </div>
-                            <span className={`${getQuotaColor(pkg.quota)} text-xs font-bold mt-1`}>
-                              {pkg.quota ? `${formatNumber(pkg.quota)} MB` : "-"}
-                            </span>
+                <div className="flex flex-wrap gap-3 max-h-[150px] min-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
+                  {result.packages.map((pkg, pidx) => (
+                    <div key={pidx} className="bg-background/60 border border-border/50 p-2.5 rounded-lg hover:bg-background/80 transition-colors h-full flex flex-col justify-between flex-grow w-auto min-w-[280px]">
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-primary text-xs font-bold leading-snug whitespace-nowrap min-h-[1.5em] flex items-center">
+                          {pkg.name || "Paket"}
+                        </span>
+                        <div className="space-y-0 text-[10px]">
+                          <div className="flex justify-between items-center gap-4">
+                            <span className="text-muted-foreground whitespace-nowrap">Aktif:</span>
+                            <span className="text-foreground/80 font-semibold whitespace-nowrap">{pkg.aktif || "-"}</span>
+                          </div>
+                          <div className="flex justify-between items-center gap-4">
+                            <span className="text-muted-foreground whitespace-nowrap">Berakhir:</span>
+                            <span className="text-foreground/80 font-semibold whitespace-nowrap">{pkg.berakir || "-"}</span>
                           </div>
                         </div>
-                      </CarouselItem>
-                    ))}
-                  </CarouselContent>
-                  <div className="flex gap-2 mt-3">
-                    <CarouselPrevious className="static translate-y-0 bg-background/80 border-border hover:bg-background h-7 w-7" />
-                    <CarouselNext className="static translate-y-0 bg-background/80 border-border hover:bg-background h-7 w-7" />
-                  </div>
-                </Carousel>
+                      </div>
+                      <div className="pt-2 mt-2 border-t border-border/30 flex items-center justify-between gap-4">
+                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider whitespace-nowrap">Quota</span>
+                        <span className={`${getQuotaColor(pkg.quota)} text-xs font-bold whitespace-nowrap`}>
+                          {pkg.quota ? `${formatNumber(pkg.quota)} MB` : "-"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="text-muted-foreground text-xs py-3">
