@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { ChevronDown, Loader2, AlertCircle } from "lucide-react";
 import {
   Carousel,
@@ -29,10 +29,9 @@ interface CheckResult {
 
 interface CheckResultCardProps {
   result: CheckResult;
-  index: number;
 }
 
-export function CheckResultCard({ result, index }: CheckResultCardProps) {
+export const CheckResultCard = React.memo(function CheckResultCard({ result }: CheckResultCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const formatNumber = (value: string) => {
@@ -54,7 +53,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
     return (
       <div
         className="card-glass p-6 rounded-xl flex items-center gap-4 animate-slide-in"
-        style={{ animationDelay: `${index * 100}ms` }}
+
       >
         <Loader2 className="w-5 h-5 animate-spin text-primary" />
         <div className="flex flex-col gap-1">
@@ -72,7 +71,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
     return (
       <div
         className="card-glass p-6 rounded-xl flex items-center gap-4 border-destructive/50 bg-destructive/5 animate-slide-in"
-        style={{ animationDelay: `${index * 100}ms` }}
+
       >
         <AlertCircle className="w-5 h-5 text-destructive" />
         <div className="flex flex-col gap-1">
@@ -129,7 +128,7 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
   return (
     <div
       className="card-glass p-6 rounded-xl flex flex-col gap-6 hover:border-primary/30 transition-all duration-300 shadow-lg hover:shadow-primary/10 animate-slide-in"
-      style={{ animationDelay: `${index * 100}ms` }}
+
     >
       {/* Header dengan nomor dan status */}
       <div className="flex justify-between items-start gap-4">
@@ -222,4 +221,4 @@ export function CheckResultCard({ result, index }: CheckResultCardProps) {
       </div>
     </div>
   );
-}
+});

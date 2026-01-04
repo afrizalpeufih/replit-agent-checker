@@ -1,9 +1,19 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { Download, X } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import * as XLSX from "xlsx";
 import { TokenModal } from "@/components/TokenModal";
 import { CheckResultCard } from "@/components/CheckResultCard";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Package {
   name: string;
@@ -34,7 +44,12 @@ const Index = () => {
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [textareaFocused, setTextareaFocused] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+
   const isCancelledRef = useRef(false);
+
+  // Limit Check State
+  const [isLimitAlertOpen, setIsLimitAlertOpen] = useState(false);
+  const [pendingNumbers, setPendingNumbers] = useState<string[]>([]);
 
   // Validate phone number prefix
   const isValidPhoneNumber = (number: string): boolean => {
@@ -44,23 +59,12 @@ const Index = () => {
     return validPrefixes.some(prefix => cleanNumber.startsWith(prefix));
   };
 
-  const handleCheckNow = async () => {
-    if (!token) {
-      setIsTokenModalOpen(true);
-      return;
-    }
-
-    if (!description.trim()) return;
-
+  const processNumbers = async (numbers: string[]) => {
     setIsChecking(true);
     setCheckResults([]);
     setErrorResponse(null);
     isCancelledRef.current = false;
     abortControllerRef.current = new AbortController();
-
-    // Split by newline, trim, and remove unique duplicates
-    const rawNumbers = description.split('\n').map(n => n.trim()).filter(n => n);
-    const numbers = Array.from(new Set(rawNumbers));
 
     // Initialize all numbers as loading
     const initialResults: CheckResult[] = numbers.map(num => ({
@@ -70,156 +74,186 @@ const Index = () => {
     }));
     setCheckResults(initialResults);
 
-    // Process each number one by one
-    for (let i = 0; i < numbers.length; i++) {
-      // Check if cancelled
-      if (isCancelledRef.current) {
-        // Mark remaining as cancelled
-        setCheckResults(prev => {
-          if (!prev) return [];
-          const updated = [...prev];
-          for (let j = i; j < numbers.length; j++) {
-            if (updated[j]?.isLoading) {
-              updated[j] = {
-                number: numbers[j],
-                status: "Dibatalkan",
-                isLoading: false,
-                isError: true,
-                errorMessage: "Pengecekan dibatalkan"
-              };
+    const CONCURRENCY_LIMIT = 5;
+    let currentIndex = 0;
+    let activeWorkers = 0;
+
+    return new Promise<void>((resolve) => {
+      const processNext = async () => {
+        // Stop if cancelled or done
+        if (isCancelledRef.current || (currentIndex >= numbers.length && activeWorkers === 0)) {
+          if (activeWorkers === 0) {
+            setIsChecking(false);
+            resolve();
+          }
+          return;
+        }
+
+        // Stop if no more numbers to process
+        if (currentIndex >= numbers.length) {
+          return;
+        }
+
+        const i = currentIndex++;
+        const num = numbers[i];
+        activeWorkers++;
+
+        // Validate number format before API call
+        if (!isValidPhoneNumber(num)) {
+          setCheckResults(prev => {
+            if (!prev) return [];
+            const updated = [...prev];
+            updated[i] = {
+              number: num,
+              status: "Format Salah",
+              isLoading: false,
+              isError: true,
+              errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
+            };
+            return updated;
+          });
+          activeWorkers--;
+          processNext(); // Try to pick up next task
+          return;
+        }
+
+        try {
+          const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              token,
+              numbers: [num],
+              timestamp: new Date().toISOString()
+            }),
+            signal: abortControllerRef.current?.signal,
+          });
+
+          if (!isCancelledRef.current) {
+            if (response.ok) {
+              const data = await response.json();
+              let result: CheckResult;
+
+              // Parse SimInfo structure from webhook
+              if (data.SimInfo && Array.isArray(data.SimInfo) && data.SimInfo.length > 0) {
+                const item = data.SimInfo[0];
+                result = {
+                  number: item.nomor || num,
+                  status: item.status || "Aktif",
+                  masa_tenggung: item.masaTenggang,
+                  terminated: item.kadaluarsa,
+                  packages: (item.PackageInfo || []).map((pkg: any) => ({
+                    name: pkg.description,
+                    aktif: pkg.startDate,
+                    berakir: pkg.endDate,
+                    quota: pkg.QuotaInfo
+                  })),
+                  isLoading: false,
+                  callPlan: item.callPlan,
+                };
+              } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
+                result = { ...data.results[0], isLoading: false, callPlan: data.callPlan || data.results[0].callPlan };
+              } else if (Array.isArray(data) && data.length > 0) {
+                result = { ...data[0], isLoading: false, callPlan: data[0].callPlan };
+              } else {
+                result = {
+                  number: num,
+                  status: data.status || data.myField || "Selesai",
+                  isLoading: false,
+                  callPlan: data.callPlan,
+                };
+              }
+
+              setCheckResults(prev => {
+                if (!prev) return [result];
+                const updated = [...prev];
+                updated[i] = result;
+                return updated;
+              });
+            } else {
+              setCheckResults(prev => {
+                if (!prev) return [];
+                const updated = [...prev];
+                updated[i] = {
+                  number: num,
+                  status: "Error",
+                  isLoading: false,
+                  isError: true,
+                  errorMessage: `HTTP ${response.status}`
+                };
+                return updated;
+              });
             }
           }
-          return updated;
-        });
-        break;
-      }
-
-      const num = numbers[i];
-
-      // Validate number format before API call
-      if (!isValidPhoneNumber(num)) {
-        setCheckResults(prev => {
-          if (!prev) return [];
-          const updated = [...prev];
-          updated[i] = {
-            number: num,
-            status: "Format Salah",
-            isLoading: false,
-            isError: true,
-            errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
-          };
-          return updated;
-        });
-        continue; // Skip API call for invalid numbers
-      }
-
-      try {
-        const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            token,
-            numbers: [num],
-            timestamp: new Date().toISOString()
-          }),
-          signal: abortControllerRef.current.signal,
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-
-
-
-          let result: CheckResult;
-
-          // Parse SimInfo structure from webhook
-          if (data.SimInfo && Array.isArray(data.SimInfo) && data.SimInfo.length > 0) {
-            const item = data.SimInfo[0];
-            result = {
-              number: item.nomor || num,
-              status: item.status || "Aktif",
-              masa_tenggung: item.masaTenggang,
-              terminated: item.kadaluarsa,
-              packages: (item.PackageInfo || []).map((pkg: any) => ({
-                name: pkg.description,
-                aktif: pkg.startDate,
-                berakir: pkg.endDate,
-                quota: pkg.QuotaInfo
-              })),
-              isLoading: false,
-              callPlan: item.callPlan,  // Ambil dari item.callPlan, bukan data.callPlan
-            };
-          } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
-            result = { ...data.results[0], isLoading: false, callPlan: data.callPlan || data.results[0].callPlan };
-          } else if (Array.isArray(data) && data.length > 0) {
-            result = { ...data[0], isLoading: false, callPlan: data[0].callPlan };
+        } catch (error: any) {
+          if (!isCancelledRef.current) {
+            setCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+              updated[i] = {
+                number: num,
+                status: "Error",
+                isLoading: false,
+                isError: true,
+                errorMessage: error.name === 'AbortError' ? "Cancelled" : "Network Error"
+              };
+              return updated;
+            });
+          }
+        } finally {
+          activeWorkers--;
+          if (isCancelledRef.current) {
+            // Handle cancellation for remaining items just once if needed, 
+            // but here we just stop processing new ones.
+            // You might want to loop remaining and mark as cancelled here if exact UI state is needed.
+            // For simplicity, we assume cancel button handler does bulk update.
           } else {
-            result = {
-              number: num,
-              status: data.status || data.myField || "Selesai",
-              isLoading: false,
-              callPlan: data.callPlan,
-            };
+            processNext();
           }
 
-          // Update the specific result
-          setCheckResults(prev => {
-            if (!prev) return [result];
-            const updated = [...prev];
-            updated[i] = result;
-            return updated;
-          });
-        } else {
-          // Mark as error
-          setCheckResults(prev => {
-            if (!prev) return [];
-            const updated = [...prev];
-            updated[i] = {
-              number: num,
-              status: "Error",
-              isLoading: false,
-              isError: true,
-              errorMessage: `HTTP ${response.status}: Gagal mendapatkan data`
-            };
-            return updated;
-          });
+          if (activeWorkers === 0 && currentIndex >= numbers.length) {
+            setIsChecking(false);
+            resolve();
+          }
         }
-      } catch (error: any) {
-        if (error.name === 'AbortError') {
-          // Request was cancelled
-          setCheckResults(prev => {
-            if (!prev) return [];
-            const updated = [...prev];
-            updated[i] = {
-              number: num,
-              status: "Dibatalkan",
-              isLoading: false,
-              isError: true,
-              errorMessage: "Pengecekan dibatalkan"
-            };
-            return updated;
-          });
-        } else {
-          // Mark as error
-          setCheckResults(prev => {
-            if (!prev) return [];
-            const updated = [...prev];
-            updated[i] = {
-              number: num,
-              status: "Error",
-              isLoading: false,
-              isError: true,
-              errorMessage: "Kesalahan jaringan"
-            };
-            return updated;
-          });
-        }
+      };
+
+      // Start initial workers
+      for (let w = 0; w < CONCURRENCY_LIMIT; w++) {
+        processNext();
       }
+    });
+  };
+
+  const handleCheckNow = () => {
+    if (!token) {
+      setIsTokenModalOpen(true);
+      return;
     }
 
-    setIsChecking(false);
+    if (!description.trim()) return;
+
+    // Split by newline, trim, and remove unique duplicates
+    const rawNumbers = description.split('\n').map(n => n.trim()).filter(n => n);
+    const numbers = Array.from(new Set(rawNumbers));
+
+    if (numbers.length > 300) {
+      setPendingNumbers(numbers);
+      setIsLimitAlertOpen(true);
+      return;
+    }
+
+    processNumbers(numbers);
+  };
+
+  const handleProceedWithLimit = () => {
+    const limitedNumbers = pendingNumbers.slice(0, 300);
+    setIsLimitAlertOpen(false);
+    // Update textarea to show what's being processed
+    setDescription(limitedNumbers.join('\n'));
+    processNumbers(limitedNumbers);
   };
 
   const handleCancel = () => {
@@ -256,6 +290,41 @@ const Index = () => {
   };
 
   const allChecksCompleted = checkResults && checkResults.length > 0 && checkResults.every(r => !r.isLoading);
+
+  // Memoized statistics to avoid recalculating on every render
+  const stats = useMemo(() => {
+    if (!checkResults || checkResults.length === 0) {
+      return { completed: 0, total: 0, aktif: 0, masaTenggang: 0, tidakAktif: 0, progress: 0 };
+    }
+
+    const total = checkResults.length;
+    let completed = 0;
+    let aktif = 0;
+    let masaTenggang = 0;
+    let tidakAktif = 0;
+
+    for (const r of checkResults) {
+      if (!r.isLoading) {
+        completed++;
+        if (r.isError || !r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "") {
+          tidakAktif++;
+        } else if (r.status?.toLowerCase() === "masa tenggang") {
+          masaTenggang++;
+        } else if (r.status?.toLowerCase() === "aktif" || r.status?.toLowerCase() === "mantap" || r.status?.toLowerCase() === "success") {
+          aktif++;
+        }
+      }
+    }
+
+    return {
+      completed,
+      total,
+      aktif,
+      masaTenggang,
+      tidakAktif,
+      progress: (completed / total) * 100
+    };
+  }, [checkResults]);
 
   return (
     <div className="min-h-screen">
@@ -406,8 +475,8 @@ const Index = () => {
                     />
                   </div>
                   <div className="grid gap-4">
-                    {checkResults.map((result, idx) => (
-                      <CheckResultCard key={idx} result={result} index={idx} />
+                    {checkResults.map((result) => (
+                      <CheckResultCard key={result.number} result={result} />
                     ))}
                   </div>
                 </div>
@@ -437,6 +506,24 @@ const Index = () => {
         onOpenChange={setIsTokenModalOpen}
         onSaveToken={setToken}
       />
+
+      {/* Limit Warning Dialog */}
+      <AlertDialog open={isLimitAlertOpen} onOpenChange={setIsLimitAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Maksimal input 300 nomor</AlertDialogTitle>
+            <AlertDialogDescription>
+              Jumlah nomor yang Anda inputkan melebihi batas 300 nomor. Apakah Anda ingin tetap melanjutkan proses untuk 300 nomor saja?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsLimitAlertOpen(false)}>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={handleProceedWithLimit}>
+              Ya, Proses 300 Nomor
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
