@@ -85,7 +85,7 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 pt-4 pb-2">
           <p className="text-muted-foreground text-sm select-none">
             Anda dapat menghubungi developer untuk mendapatkan akses token secara gratis
           </p>
@@ -131,12 +131,12 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
           </div>
         </div>
 
-        <DialogFooter className="flex gap-3 justify-between sm:justify-between">
+        <div className="flex flex-col-reverse sm:flex-row gap-3 sm:justify-between pt-3 mt-1 border-t border-border/50">
           <Button
             onClick={handleTestToken}
             disabled={testLoading || !tempApiKey.trim()}
             variant="outline"
-            className="border-border text-foreground/80 hover:bg-muted"
+            className="w-full sm:w-auto order-3 sm:order-1 border-border text-foreground/80 hover:bg-muted"
           >
             {testLoading ? (
               <span className="flex items-center gap-2">
@@ -144,26 +144,27 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
                 Testing...
               </span>
             ) : (
-              "Test"
+              "Test Token"
             )}
           </Button>
-          <div className="flex gap-3">
+
+          <div className="flex gap-3 w-full sm:w-auto order-1 sm:order-2">
             <Button
               variant="ghost"
               onClick={handleClose}
-              className="text-muted-foreground hover:text-foreground"
+              className="flex-1 sm:flex-none text-muted-foreground hover:text-foreground"
             >
               Batal
             </Button>
             <Button
               onClick={handleSave}
               disabled={!testResult?.success}
-              className="btn-gradient disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 sm:flex-none btn-gradient disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Simpan Kunci
             </Button>
           </div>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

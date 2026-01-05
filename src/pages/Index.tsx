@@ -55,12 +55,52 @@ const Index = () => {
   const [textareaFocused, setTextareaFocused] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Voucher-specific state
+  // Voucher-specific state - Multiple input rows
+  interface VoucherInputRow {
+    id: number;
+    snAwal: string;
+    snAkhir: string;
+  }
+
   const [voucherDescription, setVoucherDescription] = useState("");
+  const [voucherInputRows, setVoucherInputRows] = useState<VoucherInputRow[]>([{ id: 1, snAwal: "", snAkhir: "" }]);
+  const [nextRowId, setNextRowId] = useState(2);
   const [voucherCheckResults, setVoucherCheckResults] = useState<VoucherCheckResult[] | null>(null);
   const [isCheckingVoucher, setIsCheckingVoucher] = useState(false);
   const [voucherTextareaFocused, setVoucherTextareaFocused] = useState(false);
   const voucherAbortControllerRef = useRef<AbortController | null>(null);
+
+  // Handler functions for multiple rows
+  const handleAddRow = () => {
+    if (voucherInputRows.length >= 50) return; // Max 50 rows
+    setVoucherInputRows([...voucherInputRows, { id: nextRowId, snAwal: "", snAkhir: "" }]);
+    setNextRowId(nextRowId + 1);
+  };
+
+  const handleRemoveRow = (id: number) => {
+    if (voucherInputRows.length <= 1) return; // Keep at least one row
+    setVoucherInputRows(voucherInputRows.filter(row => row.id !== id));
+  };
+
+  const handleUpdateSnAwal = (id: number, value: string) => {
+    setVoucherInputRows(voucherInputRows.map(row =>
+      row.id === id ? { ...row, snAwal: value } : row
+    ));
+    // Clear error when user starts typing
+    if (errorRowId === id) {
+      setErrorRowId(null);
+    }
+  };
+
+  const handleUpdateSnAkhir = (id: number, value: string) => {
+    setVoucherInputRows(voucherInputRows.map(row =>
+      row.id === id ? { ...row, snAkhir: value } : row
+    ));
+    // Clear error when user starts typing
+    if (errorRowId === id) {
+      setErrorRowId(null);
+    }
+  };
 
   const isCancelledRef = useRef(false);
 
@@ -71,6 +111,11 @@ const Index = () => {
   // Voucher Limit Check State
   const [isVoucherLimitAlertOpen, setIsVoucherLimitAlertOpen] = useState(false);
   const [pendingVoucherSerials, setPendingVoucherSerials] = useState<string[]>([]);
+
+  // Voucher Validation Error State
+  const [isVoucherErrorAlertOpen, setIsVoucherErrorAlertOpen] = useState(false);
+  const [voucherErrorMessage, setVoucherErrorMessage] = useState("");
+  const [errorRowId, setErrorRowId] = useState<number | null>(null);
 
   // Validate phone number prefix
   const isValidPhoneNumber = (number: string): boolean => {
@@ -85,6 +130,85 @@ const Index = () => {
     const cleanSerial = serial.trim();
     // Must start with 350 and be max 12 digits
     return cleanSerial.startsWith('350') && cleanSerial.length <= 12 && /^\d+$/.test(cleanSerial);
+  };
+
+  // Generate sequential serial numbers from snAwal to snAkhir
+  const generateSequentialSerials = (startSerial: string, endSerial: string): string[] => {
+    const start = parseInt(startSerial.trim());
+    const end = parseInt(endSerial.trim());
+
+    if (isNaN(start) || isNaN(end)) {
+      return [];
+    }
+
+    if (start > end) {
+      return [];
+    }
+
+    const serials: string[] = [];
+    for (let i = start; i <= end; i++) {
+      serials.push(i.toString());
+    }
+
+    return serials;
+  };
+
+  // Helper: Fetch with timeout
+  const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 30000): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  };
+
+  // Helper: Fetch with retry and exponential backoff
+  const fetchWithRetry = async (
+    url: string,
+    options: RequestInit,
+    maxRetries = 2,
+    timeoutMs = 30000
+  ): Promise<Response> => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetchWithTimeout(url, options, timeoutMs);
+
+        // Retry on specific HTTP status codes
+        if (
+          (response.status === 429 || // Rate limit
+            response.status === 503 || // Service unavailable
+            response.status >= 500) && // Server errors
+          attempt < maxRetries
+        ) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Max 5s delay
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        return response;
+      } catch (error: any) {
+        // Don't retry on AbortError (user cancelled) or if it's the last attempt
+        if (error.name === 'AbortError' || attempt >= maxRetries) {
+          throw error;
+        }
+
+        // Exponential backoff for network errors
+        const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Max 5s delay
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    // This should never be reached, but TypeScript needs it
+    throw new Error('Retry failed');
   };
 
   const processNumbers = async (numbers: string[]) => {
@@ -126,6 +250,11 @@ const Index = () => {
         const num = numbers[i];
         activeWorkers++;
 
+        // Add delay between requests (except for first batch)
+        if (i > 0 && i >= CONCURRENCY_LIMIT) {
+          await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
+        }
+
         // Validate number length (max 13 digits)
         if (num.length > 13) {
           setCheckResults(prev => {
@@ -165,18 +294,24 @@ const Index = () => {
         }
 
         try {
-          const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
+          // Use fetchWithRetry for better network reliability
+          const response = await fetchWithRetry(
+            "https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                token,
+                numbers: [num],
+                timestamp: new Date().toISOString()
+              }),
+              signal: abortControllerRef.current?.signal,
             },
-            body: JSON.stringify({
-              token,
-              numbers: [num],
-              timestamp: new Date().toISOString()
-            }),
-            signal: abortControllerRef.current?.signal,
-          });
+            2, // max 2 retries
+            30000 // 30s timeout
+          );
 
           if (!isCancelledRef.current) {
             if (response.ok) {
@@ -236,6 +371,16 @@ const Index = () => {
           }
         } catch (error: any) {
           if (!isCancelledRef.current) {
+            let errorMsg = "Network Error";
+
+            if (error.name === 'AbortError') {
+              errorMsg = "Request Timeout (30s)";
+            } else if (error.message?.includes('Failed to fetch')) {
+              errorMsg = "Connection Failed";
+            } else if (error.message?.includes('NetworkError')) {
+              errorMsg = "Network Error (Check Internet)";
+            }
+
             setCheckResults(prev => {
               if (!prev) return [];
               const updated = [...prev];
@@ -244,7 +389,7 @@ const Index = () => {
                 status: "Error",
                 isLoading: false,
                 isError: true,
-                errorMessage: error.name === 'AbortError' ? "Cancelled" : "Network Error"
+                errorMessage: errorMsg
               };
               return updated;
             });
@@ -349,6 +494,11 @@ const Index = () => {
         const serial = serials[i];
         activeWorkers++;
 
+        // Add delay between requests (except for first batch)
+        if (i > 0 && i >= CONCURRENCY_LIMIT) {
+          await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
+        }
+
         // Validate serial format before API call
         if (!isValidVoucherSerial(serial)) {
           setVoucherCheckResults(prev => {
@@ -369,18 +519,24 @@ const Index = () => {
         }
 
         try {
-          const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/voucherSPV1", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
+          // Use fetchWithRetry for better network reliability
+          const response = await fetchWithRetry(
+            "https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/voucherSPV1",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                token,
+                serials: [serial],
+                timestamp: new Date().toISOString()
+              }),
+              signal: voucherAbortControllerRef.current?.signal,
             },
-            body: JSON.stringify({
-              token,
-              serials: [serial],
-              timestamp: new Date().toISOString()
-            }),
-            signal: voucherAbortControllerRef.current?.signal,
-          });
+            2, // max 2 retries
+            30000 // 30s timeout
+          );
 
           if (!isCancelledRef.current) {
             if (response.ok) {
@@ -423,6 +579,16 @@ const Index = () => {
           }
         } catch (error: any) {
           if (!isCancelledRef.current) {
+            let errorMsg = "Network Error";
+
+            if (error.name === 'AbortError') {
+              errorMsg = "Request Timeout (30s)";
+            } else if (error.message?.includes('Failed to fetch')) {
+              errorMsg = "Connection Failed";
+            } else if (error.message?.includes('NetworkError')) {
+              errorMsg = "Network Error (Check Internet)";
+            }
+
             setVoucherCheckResults(prev => {
               if (!prev) return [];
               const updated = [...prev];
@@ -431,7 +597,7 @@ const Index = () => {
                 status: "Error",
                 isLoading: false,
                 isError: true,
-                errorMessage: error.name === 'AbortError' ? "Cancelled" : "Network Error"
+                errorMessage: errorMsg
               };
               return updated;
             });
@@ -462,10 +628,39 @@ const Index = () => {
       return;
     }
 
-    if (!voucherDescription.trim()) return;
+    let serials: string[] = [];
 
-    const rawSerials = voucherDescription.split('\n').map(s => s.trim()).filter(s => s);
-    const serials = Array.from(new Set(rawSerials));
+    // Collect serials from all input rows
+    for (const row of voucherInputRows) {
+      if (row.snAwal.trim() && row.snAkhir.trim()) {
+        // Sequential mode - both fields filled
+        const rowSerials = generateSequentialSerials(row.snAwal, row.snAkhir);
+        if (rowSerials.length === 0) {
+          setVoucherErrorMessage(`Baris dengan SN Awal ${row.snAwal}: SN Awal harus lebih kecil atau sama dengan SN Akhir, dan keduanya harus berupa angka valid.`);
+          setErrorRowId(row.id);
+          setIsVoucherErrorAlertOpen(true);
+          return;
+        }
+        serials.push(...rowSerials);
+      } else if (row.snAwal.trim() && !row.snAkhir.trim()) {
+        // Single serial mode - only SN Awal filled
+        serials.push(row.snAwal.trim());
+      }
+      // Skip rows where both are empty
+    }
+
+    // Fall back to textarea mode if no rows have data
+    if (serials.length === 0 && voucherDescription.trim()) {
+      const rawSerials = voucherDescription.split('\n').map(s => s.trim()).filter(s => s);
+      serials = Array.from(new Set(rawSerials));
+    }
+
+    if (serials.length === 0) {
+      return; // No input provided
+    }
+
+    // Remove duplicates - ensure unique serial numbers only
+    serials = Array.from(new Set(serials));
 
     if (serials.length > 750) {
       setPendingVoucherSerials(serials);
@@ -662,25 +857,28 @@ const Index = () => {
       <main className="flex-1 p-4 sm:p-6">
         <div className="max-w-3xl mx-auto">
           {/* Tabs */}
-          <div className="flex gap-3 sm:gap-4 mb-6 sm:mb-8">
-            <button
-              onClick={() => setActiveTab("cek-kartu")}
-              className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-kartu"
-                ? "tab-active"
-                : "tab-inactive"
-                }`}
-            >
-              Cek Kartu Perdana
-            </button>
-            <button
-              onClick={() => setActiveTab("cek-voucher")}
-              className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-voucher"
-                ? "tab-active"
-                : "tab-inactive"
-                }`}
-            >
-              Cek Voucher
-            </button>
+          {/* Tabs - Sticky Header */}
+          <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-md py-4 -mx-4 px-4 sm:-mx-6 sm:px-6 mb-6 sm:mb-8 border-b border-border/10 transition-all">
+            <div className="flex gap-3 sm:gap-4">
+              <button
+                onClick={() => setActiveTab("cek-kartu")}
+                className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-kartu"
+                  ? "tab-active shadow-lg"
+                  : "tab-inactive opacity-70 hover:opacity-100"
+                  }`}
+              >
+                Cek Kartu Perdana
+              </button>
+              <button
+                onClick={() => setActiveTab("cek-voucher")}
+                className={`flex-1 py-2.5 px-4 rounded-lg font-semibold font-display transition-all select-none text-sm sm:text-base ${activeTab === "cek-voucher"
+                  ? "tab-active shadow-lg"
+                  : "tab-inactive opacity-70 hover:opacity-100"
+                  }`}
+              >
+                Cek Voucher
+              </button>
+            </div>
           </div>
 
           {/* Form Content */}
@@ -719,24 +917,55 @@ const Index = () => {
                 </>
               )}
 
-              {/* Cancel & Download Buttons - Shown when checking or has results */}
+              {/* Sticky Header for Results (Actions + Stats) */}
               {(isChecking || checkResults) && (
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleCancel}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all font-display"
-                  >
-                    <X className="w-4 h-4" />
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDownloadExcel}
-                    disabled={!allChecksCompleted}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all font-display disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download Excel
-                  </button>
+                <div className="sticky top-[76px] z-40 bg-background/95 backdrop-blur-md pt-2 pb-4 -mx-4 px-4 sm:-mx-6 sm:px-6 border-b border-border/10 space-y-4">
+                  {/* Cancel & Download Buttons */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleCancel}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all font-display"
+                    >
+                      <X className="w-4 h-4" />
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDownloadExcel}
+                      disabled={!allChecksCompleted}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all font-display disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download Excel
+                    </button>
+                  </div>
+
+                  {/* Stats & Progress */}
+                  {checkResults && (
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
+                        Hasil Pengecekan
+                        <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                          {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
+                        </span>
+                        <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
+                          {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && (r.status?.toLowerCase() === "aktif" || r.status?.toLowerCase() === "mantap" || r.status?.toLowerCase() === "success")).length} Aktif
+                        </span>
+                        <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                          {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && r.status?.toLowerCase() === "masa tenggang").length} Masa Tenggang
+                        </span>
+                        <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
+                          {checkResults.filter(r => !r.isLoading && !r.isError && (!r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "") && r.status?.toLowerCase() !== "unknown").length} Tidak Aktif
+                        </span>
+                        <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
+                          {checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
+                        </span>
+                      </h4>
+                      <Progress
+                        value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100}
+                        className="w-full sm:flex-1 h-2"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -753,33 +982,10 @@ const Index = () => {
                 </div>
               )}
 
-              {/* Results Display */}
+              {/* Results List */}
               {checkResults && (
                 <div className="mt-6 sm:mt-8 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
-                      Hasil Pengecekan
-                      <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                        {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
-                      </span>
-                      <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
-                        {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && (r.status?.toLowerCase() === "aktif" || r.status?.toLowerCase() === "mantap" || r.status?.toLowerCase() === "success")).length} Aktif
-                      </span>
-                      <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
-                        {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && r.status?.toLowerCase() === "masa tenggang").length} Masa Tenggang
-                      </span>
-                      <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
-                        {checkResults.filter(r => !r.isLoading && !r.isError && (!r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "") && r.status?.toLowerCase() !== "unknown").length} Tidak Aktif
-                      </span>
-                      <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
-                        {checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
-                      </span>
-                    </h4>
-                    <Progress
-                      value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100}
-                      className="w-full sm:flex-1 h-2"
-                    />
-                  </div>
+                  <div className="hidden"></div> {/* Spacer placeholder */}
                   <div className="grid gap-4">
                     {checkResults.map((result) => (
                       <CheckResultCard key={result.number} result={result} />
@@ -800,24 +1006,79 @@ const Index = () => {
                       Masukkan Serial Number Voucher
                     </h3>
                     <p className="text-muted-foreground text-sm mb-4 select-none">
-                      Bisa cek 1pcs hingga 300pcs. Serial number wajib berawalan 350 dan maks 12 digit:
+                      Bisa cek 1pcs hingga 750pcs. Serial number wajib berawalan 350 dan maks 12 digit:
                     </p>
-                    <textarea
-                      value={voucherDescription}
-                      onChange={(e) => setVoucherDescription(e.target.value)}
-                      onFocus={() => setVoucherTextareaFocused(true)}
-                      onBlur={() => setVoucherTextareaFocused(false)}
-                      placeholder={"350xxxxxxx\n350xxxxxxx\n350xxxxxxx\nDan seterusnya"}
-                      className="input-dark w-full resize-none"
-                      style={{ caretColor: voucherTextareaFocused ? 'hsl(var(--foreground))' : 'transparent' }}
-                      rows={6}
-                    />
+
+                    {/* Multiple Input Rows */}
+                    <div className="space-y-4">
+                      {voucherInputRows.map((row, index) => (
+                        <div
+                          key={row.id}
+                          className="relative bg-background/30 rounded-lg p-3 sm:p-4 border border-border/30"
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                            {/* SN Awal (Left) */}
+                            <div className="flex flex-col gap-2">
+                              <label className="text-foreground font-semibold text-sm select-none">
+                                SN Awal
+                              </label>
+                              <input
+                                type="text"
+                                value={row.snAwal}
+                                onChange={(e) => handleUpdateSnAwal(row.id, e.target.value)}
+                                placeholder="350xxxxxxxxx"
+                                maxLength={12}
+                                className={`input-dark ${errorRowId === row.id ? 'border-2 border-red-500' : ''}`}
+                              />
+                            </div>
+
+                            {/* SN Akhir (Right) */}
+                            <div className="flex flex-col gap-2">
+                              <label className="text-foreground font-semibold text-sm select-none">
+                                SN Akhir
+                              </label>
+                              <input
+                                type="text"
+                                value={row.snAkhir}
+                                onChange={(e) => handleUpdateSnAkhir(row.id, e.target.value)}
+                                placeholder="350xxxxxxxxx"
+                                maxLength={12}
+                                className={`input-dark ${errorRowId === row.id ? 'border-2 border-red-500' : ''}`}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Remove button - positioned at top right, only show if more than 1 row */}
+                          {voucherInputRows.length > 1 && (
+                            <button
+                              onClick={() => handleRemoveRow(row.id)}
+                              className="absolute top-2 right-2 p-1 rounded-md bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all"
+                              title="Hapus baris"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Add Button - Centered */}
+                      <div className="flex justify-center pt-2">
+                        <button
+                          onClick={handleAddRow}
+                          disabled={voucherInputRows.length >= 50}
+                          className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 border border-primary/50 hover:bg-primary/30 hover:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-primary/20"
+                          title={voucherInputRows.length >= 50 ? "Maksimal 50 baris" : "Tambah baris"}
+                        >
+                          <img src="/add.png" alt="Add" className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Submit Button */}
                   <button
                     onClick={handleCheckVoucherNow}
-                    disabled={!voucherDescription.trim()}
+                    disabled={!voucherInputRows.some(row => row.snAwal.trim().length >= 12)}
                     className="w-full btn-gradient py-3 rounded-lg transition-all duration-200 select-none disabled:opacity-50 disabled:cursor-not-allowed font-display"
                   >
                     Cek Sekarang
@@ -825,51 +1086,59 @@ const Index = () => {
                 </>
               )}
 
-              {/* Cancel & Download Buttons - Shown when checking or has results */}
+              {/* Sticky Header for Results (Actions + Stats) */}
               {(isCheckingVoucher || voucherCheckResults) && (
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleCancelVoucher}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all font-display"
-                  >
-                    <X className="w-4 h-4" />
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDownloadVoucherExcel}
-                    disabled={!voucherCheckResults || voucherCheckResults.some(r => r.isLoading)}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all font-display disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download Excel
-                  </button>
+                <div className="sticky top-[76px] z-40 bg-background/95 backdrop-blur-md pt-2 pb-4 -mx-4 px-4 sm:-mx-6 sm:px-6 border-b border-border/10 space-y-4">
+                  {/* Cancel & Download Buttons */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleCancelVoucher}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all font-display"
+                    >
+                      <X className="w-4 h-4" />
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDownloadVoucherExcel}
+                      disabled={!voucherCheckResults || voucherCheckResults.some(r => r.isLoading)}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all font-display disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download Excel
+                    </button>
+                  </div>
+
+                  {/* Stats & Progress */}
+                  {voucherCheckResults && (
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
+                        Hasil Pengecekan
+                        <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                          {voucherCheckResults.filter(r => !r.isLoading).length}/{voucherCheckResults.length} Voucher
+                        </span>
+                        <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
+                          {voucherCheckResults.filter(r => !r.isLoading && !r.isError && r.status?.toLowerCase() === "injected").length} Injected
+                        </span>
+                        <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
+                          {voucherCheckResults.filter(r => !r.isLoading && !r.isError && (r.status?.toLowerCase().includes("not") || r.status?.toLowerCase().includes("gagal"))).length} Not Inject
+                        </span>
+                        <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
+                          {voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
+                        </span>
+                      </h4>
+                      <Progress
+                        value={(voucherCheckResults.filter(r => !r.isLoading).length / voucherCheckResults.length) * 100}
+                        className="w-full sm:flex-1 h-2"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Results Display */}
+              {/* Results List */}
               {voucherCheckResults && (
                 <div className="mt-6 sm:mt-8 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
-                      Hasil Pengecekan
-                      <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                        {voucherCheckResults.filter(r => !r.isLoading).length}/{voucherCheckResults.length} Voucher
-                      </span>
-                      <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
-                        {voucherCheckResults.filter(r => !r.isLoading && !r.isError && r.status?.toLowerCase() === "injected").length} Injected
-                      </span>
-                      <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
-                        {voucherCheckResults.filter(r => !r.isLoading && !r.isError && (r.status?.toLowerCase().includes("not") || r.status?.toLowerCase().includes("gagal"))).length} Not Inject
-                      </span>
-                      <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
-                        {voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
-                      </span>
-                    </h4>
-                    <Progress
-                      value={(voucherCheckResults.filter(r => !r.isLoading).length / voucherCheckResults.length) * 100}
-                      className="w-full sm:flex-1 h-2"
-                    />
-                  </div>
+                  <div className="hidden"></div> {/* Spacer placeholder */}
                   <div className="grid gap-4">
                     {voucherCheckResults.map((result) => (
                       <VoucherCheckResultCard key={result.serialNumber} result={result} />
@@ -920,6 +1189,26 @@ const Index = () => {
             <AlertDialogCancel onClick={() => setIsVoucherLimitAlertOpen(false)}>Batal</AlertDialogCancel>
             <AlertDialogAction onClick={handleProceedWithVoucherLimit}>
               Ya, Proses 750 Voucher
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Voucher Validation Error Dialog */}
+      <AlertDialog open={isVoucherErrorAlertOpen} onOpenChange={setIsVoucherErrorAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kesalahan Input Serial Number</AlertDialogTitle>
+            <AlertDialogDescription>
+              {voucherErrorMessage}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => {
+              setIsVoucherErrorAlertOpen(false);
+              // Keep errorRowId to maintain red border until user fixes it
+            }}>
+              OK
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
