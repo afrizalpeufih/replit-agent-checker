@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 interface TokenModalProps {
   isOpen: boolean;
@@ -20,7 +20,6 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
   const [tempApiKey, setTempApiKey] = useState("");
   const [testResult, setTestResult] = useState<{ success?: boolean; error?: string } | null>(null);
   const [testLoading, setTestLoading] = useState(false);
-  const [showToken, setShowToken] = useState(false);
 
   const handleTestToken = async () => {
     if (!tempApiKey.trim()) {
@@ -65,7 +64,6 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
       onOpenChange(false);
       setTempApiKey("");
       setTestResult(null);
-      setShowToken(false);
     }
   };
 
@@ -73,7 +71,6 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
     onOpenChange(false);
     setTempApiKey("");
     setTestResult(null);
-    setShowToken(false);
   };
 
   return (
@@ -94,26 +91,13 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
             <label className="text-foreground/80 text-sm font-medium select-none">
               INPUT TOKEN DISINI
             </label>
-            <div className="relative">
-              <Input
-                type={showToken ? "text" : "password"}
-                placeholder="Kwqdicuxxxxxxxxx"
-                value={tempApiKey}
-                onChange={(e) => setTempApiKey(e.target.value)}
-                className="input-dark pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowToken(!showToken)}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showToken ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-              </button>
-            </div>
+            <Input
+              type="text"
+              placeholder="Kwqdicuxxxxxxxxx"
+              value={tempApiKey}
+              onChange={(e) => setTempApiKey(e.target.value)}
+              className="input-dark"
+            />
 
             {/* Test Result Display */}
             {testResult && (
