@@ -858,7 +858,7 @@ const Index = () => {
         <div className="max-w-3xl mx-auto">
           {/* Tabs */}
           {/* Tabs - Sticky Header */}
-          <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-md py-4 -mx-4 px-4 sm:-mx-6 sm:px-6 mb-6 sm:mb-8 border-b border-border/10 transition-all">
+          <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-md py-3 -mx-4 px-4 sm:-mx-6 sm:px-6 border-b border-border/10 transition-all">
             <div className="flex gap-3 sm:gap-4">
               <button
                 onClick={() => setActiveTab("cek-kartu")}

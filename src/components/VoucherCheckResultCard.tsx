@@ -113,8 +113,10 @@ export const VoucherCheckResultCard = React.memo(function VoucherCheckResultCard
     // Extract data from additionalInfo - matching webhook field names
     const info = result.additionalInfo || {};
 
-    // Debug: log the additionalInfo to console to see what fields are available
-    console.log('Voucher additionalInfo:', info);
+    // Debug: log the additionalInfo to console to see what fields are available (dev only)
+    if (import.meta.env.DEV) {
+        console.log('Voucher additionalInfo:', info);
+    }
 
     const serialNumber = getField(info, 'SerialNumber') !== "-" ? getField(info, 'SerialNumber') :
         getField(info, 'serialNumber') !== "-" ? getField(info, 'serialNumber') :
