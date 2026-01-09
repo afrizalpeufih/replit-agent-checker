@@ -22,14 +22,36 @@ export default defineConfig(({ mode }) => ({
       compress: {
         drop_console: mode === 'production',
         drop_debugger: mode === 'production',
+        passes: 2,
+        pure_funcs: mode === 'production' ? ['console.log', 'console.info'] : [],
+        dead_code: true,
+        conditionals: true,
+        evaluate: true,
+      },
+      mangle: {
+        safari10: true,
+      },
+      format: {
+        comments: false,
       },
     },
     rollupOptions: {
+      treeshake: {
+        moduleSideEffects: false,
+        propertyReadSideEffects: false,
+      },
       output: {
         manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'radix-ui': ['@radix-ui/react-dialog', '@radix-ui/react-progress', '@radix-ui/react-toast', '@radix-ui/react-alert-dialog', '@radix-ui/react-tabs', '@radix-ui/react-tooltip', '@radix-ui/react-label', '@radix-ui/react-slot'],
-          'utils': ['xlsx'],
+          'react-core': ['react', 'react-dom'],
+          'react-router': ['react-router-dom'],
+          'tanstack-query': ['@tanstack/react-query'],
+          'ui-dialog': ['@radix-ui/react-dialog', '@radix-ui/react-alert-dialog'],
+          'ui-forms': ['@radix-ui/react-label', '@radix-ui/react-slot'],
+          'ui-feedback': ['@radix-ui/react-toast', '@radix-ui/react-progress', '@radix-ui/react-tooltip'],
+          'ui-navigation': ['@radix-ui/react-tabs'],
+          'xlsx-vendor': ['xlsx'],
+          'analytics': ['@vercel/analytics', '@vercel/speed-insights'],
+          'ui-utils': ['class-variance-authority', 'clsx', 'tailwind-merge'],
         },
       },
     },

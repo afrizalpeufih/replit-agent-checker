@@ -8,17 +8,24 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { parseTokenInput } from "@/lib/helpers";
 
 interface TokenModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onSaveToken: (token: string) => void;
+  onSaveToken: (tokenInput: string, validTokens: string[]) => void;
 }
 
 export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProps) {
   const [tempApiKey, setTempApiKey] = useState("");
-  const [testResult, setTestResult] = useState<{ success?: boolean; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    success?: boolean;
+    error?: string;
+    validTokens?: string[];
+    totalTokens?: number;
+    tokenDetails?: Array<{ phone: string; status: boolean }>;
+  } | null>(null);
   const [testLoading, setTestLoading] = useState(false);
 
   const handleTestToken = async () => {
@@ -31,21 +38,49 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
     setTestResult(null);
 
     try {
-      // Test token with actual webhook endpoint
+      // Send raw token string with # delimiter
       const response = await fetch("https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/cektoken", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          token: tempApiKey,
+          token: tempApiKey.trim(),
           numbers: ["0895321806147"], // Test number for validation
           timestamp: new Date().toISOString()
         }),
       });
 
       if (response.ok) {
-        setTestResult({ success: true });
+        const data = await response.json();
+
+        // Parse response to extract token validation results
+        if (data.token && Array.isArray(data.token)) {
+          const tokenDetails = data.token;
+          const validTokens = tokenDetails
+            .filter((t: any) => t.status === true)
+            .map((t: any) => t.phone);
+
+          const totalTokens = tokenDetails.length;
+
+          if (validTokens.length > 0) {
+            setTestResult({
+              success: true,
+              validTokens,
+              totalTokens,
+              tokenDetails
+            });
+          } else {
+            setTestResult({
+              success: false,
+              error: `0 dari ${totalTokens} token valid. Semua token tidak memiliki akses.`,
+              totalTokens,
+              tokenDetails
+            });
+          }
+        } else {
+          setTestResult({ success: false, error: "Format response tidak valid" });
+        }
       } else if (response.status === 401 || response.status === 403) {
         setTestResult({ success: false, error: "Token tidak valid atau tidak memiliki akses" });
       } else {
@@ -59,8 +94,8 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
   };
 
   const handleSave = () => {
-    if (testResult?.success) {
-      onSaveToken(tempApiKey);
+    if (testResult?.success && testResult?.validTokens) {
+      onSaveToken(tempApiKey.trim(), testResult.validTokens);
       onOpenChange(false);
       setTempApiKey("");
       setTestResult(null);
@@ -101,15 +136,42 @@ export function TokenModal({ isOpen, onOpenChange, onSaveToken }: TokenModalProp
 
             {/* Test Result Display */}
             {testResult && (
-              <div
-                className={`mt-3 p-3 rounded-md text-sm font-semibold animate-fade-in ${testResult.success
-                  ? "bg-success/10 border border-success/30 text-green-400"
-                  : "bg-destructive/10 border border-destructive/30 text-red-400"
-                  }`}
-              >
-                {testResult.success
-                  ? "Token valid! Akses berhasil"
-                  : testResult.error || "Token Invalid Akses tidak berhasil"}
+              <div className="mt-3 space-y-2">
+                {/* Summary Banner */}
+                <div
+                  className={`p-3 rounded-md text-sm font-semibold animate-fade-in ${testResult.success
+                    ? "bg-success/10 border border-success/30 text-green-400"
+                    : "bg-destructive/10 border border-destructive/30 text-red-400"
+                    }`}
+                >
+                  {testResult.success
+                    ? `✓ ${testResult.validTokens?.length} dari ${testResult.totalTokens} token valid`
+                    : testResult.error || "Token Invalid, Akses tidak berhasil"}
+                </div>
+
+                {/* Token Details List */}
+                {testResult.tokenDetails && testResult.tokenDetails.length > 0 && (
+                  <div className="mt-2 max-h-40 overflow-y-auto space-y-1 bg-muted/20 rounded-md p-2 border border-border/30">
+                    {testResult.tokenDetails.map((token, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 text-xs px-2 py-1 rounded bg-background/50"
+                      >
+                        {token.status ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                        )}
+                        <span className={`font-mono truncate ${token.status ? 'text-green-400' : 'text-red-400/70'}`}>
+                          {token.phone}
+                        </span>
+                        <span className={`ml-auto text-xs ${token.status ? 'text-green-500' : 'text-red-500'}`}>
+                          {token.status ? 'Valid' : 'Invalid'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

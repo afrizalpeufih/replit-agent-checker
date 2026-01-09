@@ -1,8 +1,9 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
 import { Download, X } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import * as XLSX from "xlsx";
 import { TokenModal } from "@/components/TokenModal";
+import { toast } from "sonner";
 import { CheckResultCard } from "@/components/CheckResultCard";
 import { VoucherCheckResultCard } from "@/components/VoucherCheckResultCard";
 import {
@@ -15,6 +16,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  isValidPhoneNumber,
+  isValidVoucherSerial,
+  getOptimalSettings,
+  generateSequentialSerials,
+  createBatches,
+  fetchWithRetry,
+  getTokenForBatch,
+} from "@/lib/helpers";
 
 interface Package {
   name: string;
@@ -45,7 +55,8 @@ interface VoucherCheckResult {
 }
 
 const Index = () => {
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState(""); // Raw token input string with # delimiter
+  const [validTokens, setValidTokens] = useState<string[]>([]); // Array of valid tokens for rotation
   const [activeTab, setActiveTab] = useState<"cek-kartu" | "cek-voucher">("cek-kartu");
   const [description, setDescription] = useState("");
   const [checkResults, setCheckResults] = useState<CheckResult[] | null>(null);
@@ -71,36 +82,32 @@ const Index = () => {
   const voucherAbortControllerRef = useRef<AbortController | null>(null);
 
   // Handler functions for multiple rows
-  const handleAddRow = () => {
+  const handleAddRow = useCallback(() => {
     if (voucherInputRows.length >= 50) return; // Max 50 rows
-    setVoucherInputRows([...voucherInputRows, { id: nextRowId, snAwal: "", snAkhir: "" }]);
-    setNextRowId(nextRowId + 1);
-  };
+    setVoucherInputRows(prev => [...prev, { id: nextRowId, snAwal: "", snAkhir: "" }]);
+    setNextRowId(prev => prev + 1);
+  }, [voucherInputRows.length, nextRowId]);
 
-  const handleRemoveRow = (id: number) => {
+  const handleRemoveRow = useCallback((id: number) => {
     if (voucherInputRows.length <= 1) return; // Keep at least one row
-    setVoucherInputRows(voucherInputRows.filter(row => row.id !== id));
-  };
+    setVoucherInputRows(prev => prev.filter(row => row.id !== id));
+  }, [voucherInputRows.length]);
 
-  const handleUpdateSnAwal = (id: number, value: string) => {
-    setVoucherInputRows(voucherInputRows.map(row =>
+  const handleUpdateSnAwal = useCallback((id: number, value: string) => {
+    setVoucherInputRows(prev => prev.map(row =>
       row.id === id ? { ...row, snAwal: value } : row
     ));
     // Clear error when user starts typing
-    if (errorRowId === id) {
-      setErrorRowId(null);
-    }
-  };
+    setErrorRowId(prev => prev === id ? null : prev);
+  }, []);
 
-  const handleUpdateSnAkhir = (id: number, value: string) => {
-    setVoucherInputRows(voucherInputRows.map(row =>
+  const handleUpdateSnAkhir = useCallback((id: number, value: string) => {
+    setVoucherInputRows(prev => prev.map(row =>
       row.id === id ? { ...row, snAkhir: value } : row
     ));
     // Clear error when user starts typing
-    if (errorRowId === id) {
-      setErrorRowId(null);
-    }
-  };
+    setErrorRowId(prev => prev === id ? null : prev);
+  }, []);
 
   const isCancelledRef = useRef(false);
 
@@ -117,101 +124,17 @@ const Index = () => {
   const [voucherErrorMessage, setVoucherErrorMessage] = useState("");
   const [errorRowId, setErrorRowId] = useState<number | null>(null);
 
-  // Validate phone number prefix
-  const isValidPhoneNumber = (number: string): boolean => {
-    const cleanNumber = number.trim();
-    // Check if starts with 0895, 0896, 0897, 0898, or 0899
-    const validPrefixes = ['0895', '0896', '0897', '0898', '0899'];
-    return validPrefixes.some(prefix => cleanNumber.startsWith(prefix));
-  };
 
-  // Validate voucher serial number
-  const isValidVoucherSerial = (serial: string): boolean => {
-    const cleanSerial = serial.trim();
-    // Must start with 350 and be max 12 digits
-    return cleanSerial.startsWith('350') && cleanSerial.length <= 12 && /^\d+$/.test(cleanSerial);
-  };
-
-  // Generate sequential serial numbers from snAwal to snAkhir
-  const generateSequentialSerials = (startSerial: string, endSerial: string): string[] => {
-    const start = parseInt(startSerial.trim());
-    const end = parseInt(endSerial.trim());
-
-    if (isNaN(start) || isNaN(end)) {
-      return [];
-    }
-
-    if (start > end) {
-      return [];
-    }
-
-    const serials: string[] = [];
-    for (let i = start; i <= end; i++) {
-      serials.push(i.toString());
-    }
-
-    return serials;
-  };
-
-  // Helper: Fetch with timeout
-  const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 30000): Promise<Response> => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      return response;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      throw error;
-    }
-  };
-
-  // Helper: Fetch with retry and exponential backoff
-  const fetchWithRetry = async (
-    url: string,
-    options: RequestInit,
-    maxRetries = 2,
-    timeoutMs = 30000
-  ): Promise<Response> => {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await fetchWithTimeout(url, options, timeoutMs);
-
-        // Retry on specific HTTP status codes
-        if (
-          (response.status === 429 || // Rate limit
-            response.status === 503 || // Service unavailable
-            response.status >= 500) && // Server errors
-          attempt < maxRetries
-        ) {
-          const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Max 5s delay
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-
-        return response;
-      } catch (error: any) {
-        // Don't retry on AbortError (user cancelled) or if it's the last attempt
-        if (error.name === 'AbortError' || attempt >= maxRetries) {
-          throw error;
-        }
-
-        // Exponential backoff for network errors
-        const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Max 5s delay
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-
-    // This should never be reached, but TypeScript needs it
-    throw new Error('Retry failed');
-  };
 
   const processNumbers = async (numbers: string[]) => {
+    // Check network quality and get optimal settings
+    const settings = getOptimalSettings();
+
+    if (!settings) {
+      toast.error("Tidak ada koneksi internet. Cek koneksi Anda.");
+      return;
+    }
+
     setIsChecking(true);
     setCheckResults([]);
     setErrorResponse(null);
@@ -226,102 +149,135 @@ const Index = () => {
     }));
     setCheckResults(initialResults);
 
-    const CONCURRENCY_LIMIT = 5;
-    let currentIndex = 0;
+    const { BATCH_SIZE, TIMEOUT, MAX_RETRIES, RETRY_DELAY } = settings;
+
+    // Use number of valid tokens as concurrency level
+    // More tokens = more parallel workers = faster processing
+    const CONCURRENCY = validTokens.length;
+
+    // Create batches
+    const batches = createBatches(numbers, BATCH_SIZE);
+
+    let currentBatchIndex = 0;
+    let globalBatchCounter = 0; // Track global batch index for token rotation
     let activeWorkers = 0;
 
     return new Promise<void>((resolve) => {
-      const processNext = async () => {
-        // Stop if cancelled or done
-        if (isCancelledRef.current || (currentIndex >= numbers.length && activeWorkers === 0)) {
-          if (activeWorkers === 0) {
+      const processBatch = async (batch: string[], batchStartIndex: number, batchIndexForToken: number) => {
+        activeWorkers++;
+
+        // Get token for this batch using round-robin
+        const batchToken = getTokenForBatch(validTokens, batchIndexForToken);
+
+        // Client-side validation for batch
+        const validBatch: string[] = [];
+        const invalidIndices: number[] = [];
+
+        batch.forEach((num, idx) => {
+          const globalIndex = batchStartIndex + idx;
+
+          // Validate length
+          if (num.length > 13) {
+            setCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+              updated[globalIndex] = {
+                number: num,
+                status: "Gagal",
+                isLoading: false,
+                isError: true,
+                errorMessage: "Maksimal 13 digit"
+              };
+              return updated;
+            });
+            invalidIndices.push(idx);
+            return;
+          }
+
+          // Validate format
+          if (!isValidPhoneNumber(num)) {
+            setCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+              updated[globalIndex] = {
+                number: num,
+                status: "Format Salah",
+                isLoading: false,
+                isError: true,
+                errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
+              };
+              return updated;
+            });
+            invalidIndices.push(idx);
+            return;
+          }
+
+          validBatch.push(num);
+        });
+
+        // Skip API call if no valid numbers in batch
+        if (validBatch.length === 0) {
+          activeWorkers--;
+          if (!isCancelledRef.current && currentBatchIndex < batches.length) {
+            const nextBatch = batches[currentBatchIndex];
+            const nextStartIndex = currentBatchIndex * BATCH_SIZE;
+            const nextBatchIndexForToken = globalBatchCounter++;
+            currentBatchIndex++;
+            processBatch(nextBatch, nextStartIndex, nextBatchIndexForToken);
+          }
+
+          if (activeWorkers === 0 && currentBatchIndex >= batches.length) {
             setIsChecking(false);
             resolve();
           }
           return;
         }
 
-        // Stop if no more numbers to process
-        if (currentIndex >= numbers.length) {
-          return;
-        }
-
-        const i = currentIndex++;
-        const num = numbers[i];
-        activeWorkers++;
-
-        // Add delay between requests (except for first batch)
-        if (i > 0 && i >= CONCURRENCY_LIMIT) {
-          await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
-        }
-
-        // Validate number length (max 13 digits)
-        if (num.length > 13) {
-          setCheckResults(prev => {
-            if (!prev) return [];
-            const updated = [...prev];
-            updated[i] = {
-              number: num,
-              status: "Gagal",
-              isLoading: false,
-              isError: true,
-              errorMessage: "Maksimal 13 digit"
-            };
-            return updated;
-          });
-          activeWorkers--;
-          processNext();
-          return;
-        }
-
-        // Validate number format before API call
-        if (!isValidPhoneNumber(num)) {
-          setCheckResults(prev => {
-            if (!prev) return [];
-            const updated = [...prev];
-            updated[i] = {
-              number: num,
-              status: "Format Salah",
-              isLoading: false,
-              isError: true,
-              errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
-            };
-            return updated;
-          });
-          activeWorkers--;
-          processNext(); // Try to pick up next task
-          return;
-        }
-
         try {
-          // Use fetchWithRetry for better network reliability
           const response = await fetchWithRetry(
             "https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim",
             {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                token,
-                numbers: [num],
+                token: batchToken, // Use rotated token for this batch
+                numbers: validBatch,
                 timestamp: new Date().toISOString()
               }),
               signal: abortControllerRef.current?.signal,
             },
-            2, // max 2 retries
-            30000 // 30s timeout
+            MAX_RETRIES,
+            TIMEOUT,
+            RETRY_DELAY
           );
 
-          if (!isCancelledRef.current) {
-            if (response.ok) {
-              const data = await response.json();
-              let result: CheckResult;
+          if (!isCancelledRef.current && response.ok) {
+            const data = await response.json();
 
-              // Parse SimInfo structure from webhook
-              if (data.SimInfo && Array.isArray(data.SimInfo) && data.SimInfo.length > 0) {
-                const item = data.SimInfo[0];
-                result = {
+            // Update results for entire batch at once
+            setCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+
+              // Parse batch response (handle both single and batch returns)
+              let results: any[] = [];
+
+              if (data.SimInfo && Array.isArray(data.SimInfo)) {
+                results = data.SimInfo;
+              } else if (data.results && Array.isArray(data.results)) {
+                results = data.results;
+              } else if (Array.isArray(data)) {
+                results = data;
+              } else if (validBatch.length === 1) {
+                // Single item response
+                results = [data];
+              }
+
+              results.forEach((item: any, idx: number) => {
+                const globalIndex = batchStartIndex + idx;
+                const num = validBatch[idx] || batch[idx];
+
+                updated[globalIndex] = {
                   number: item.nomor || num,
                   status: item.status || "Aktif",
                   masa_tenggung: item.masaTenggang,
@@ -335,46 +291,33 @@ const Index = () => {
                   isLoading: false,
                   callPlan: item.callPlan,
                 };
-              } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
-                result = { ...data.results[0], isLoading: false, callPlan: data.callPlan || data.results[0].callPlan };
-              } else if (Array.isArray(data) && data.length > 0) {
-                result = { ...data[0], isLoading: false, callPlan: data[0].callPlan };
-              } else {
-                result = {
-                  number: num,
-                  status: data.status || data.myField || "Selesai",
-                  isLoading: false,
-                  callPlan: data.callPlan,
-                };
-              }
-
-              setCheckResults(prev => {
-                if (!prev) return [result];
-                const updated = [...prev];
-                updated[i] = result;
-                return updated;
               });
-            } else {
-              setCheckResults(prev => {
-                if (!prev) return [];
-                const updated = [...prev];
-                updated[i] = {
+
+              return updated;
+            });
+          } else if (!isCancelledRef.current) {
+            // Mark entire batch as error
+            setCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+              validBatch.forEach((num, idx) => {
+                updated[batchStartIndex + idx] = {
                   number: num,
                   status: "Error",
                   isLoading: false,
                   isError: true,
-                  errorMessage: `HTTP ${response.status}`
+                  errorMessage: `Batch Error: HTTP ${response.status}`
                 };
-                return updated;
               });
-            }
+              return updated;
+            });
           }
         } catch (error: any) {
           if (!isCancelledRef.current) {
             let errorMsg = "Network Error";
 
             if (error.name === 'AbortError') {
-              errorMsg = "Request Timeout (30s)";
+              errorMsg = "Request Timeout (10s)";
             } else if (error.message?.includes('Failed to fetch')) {
               errorMsg = "Connection Failed";
             } else if (error.message?.includes('NetworkError')) {
@@ -384,43 +327,53 @@ const Index = () => {
             setCheckResults(prev => {
               if (!prev) return [];
               const updated = [...prev];
-              updated[i] = {
-                number: num,
-                status: "Error",
-                isLoading: false,
-                isError: true,
-                errorMessage: errorMsg
-              };
+              validBatch.forEach((num, idx) => {
+                updated[batchStartIndex + idx] = {
+                  number: num,
+                  status: "Error",
+                  isLoading: false,
+                  isError: true,
+                  errorMessage: errorMsg
+                };
+              });
               return updated;
             });
           }
         } finally {
           activeWorkers--;
-          if (isCancelledRef.current) {
-            // Handle cancellation for remaining items just once if needed, 
-            // but here we just stop processing new ones.
-            // You might want to loop remaining and mark as cancelled here if exact UI state is needed.
-            // For simplicity, we assume cancel button handler does bulk update.
-          } else {
-            processNext();
+
+          if (!isCancelledRef.current && currentBatchIndex < batches.length) {
+            const nextBatch = batches[currentBatchIndex];
+            const nextStartIndex = currentBatchIndex * BATCH_SIZE;
+            const nextBatchIndexForToken = globalBatchCounter++;
+            currentBatchIndex++;
+            processBatch(nextBatch, nextStartIndex, nextBatchIndexForToken);
           }
 
-          if (activeWorkers === 0 && currentIndex >= numbers.length) {
+          if (activeWorkers === 0 && currentBatchIndex >= batches.length) {
             setIsChecking(false);
             resolve();
           }
         }
       };
 
-      // Start initial workers
-      for (let w = 0; w < CONCURRENCY_LIMIT; w++) {
-        processNext();
+      // Start initial batch workers
+      const initialBatches = Math.min(CONCURRENCY, batches.length);
+      for (let i = 0; i < initialBatches; i++) {
+        processBatch(batches[i], i * BATCH_SIZE, globalBatchCounter++);
+        currentBatchIndex++;
+      }
+
+      // Handle empty input
+      if (batches.length === 0) {
+        setIsChecking(false);
+        resolve();
       }
     });
   };
 
-  const handleCheckNow = () => {
-    if (!token) {
+  const handleCheckNow = useCallback(() => {
+    if (!token || validTokens.length === 0) {
       setIsTokenModalOpen(true);
       return;
     }
@@ -438,24 +391,24 @@ const Index = () => {
     }
 
     processNumbers(numbers);
-  };
+  }, [token, validTokens, description, processNumbers]);
 
-  const handleProceedWithLimit = () => {
+  const handleProceedWithLimit = useCallback(() => {
     const limitedNumbers = pendingNumbers.slice(0, 300);
     setIsLimitAlertOpen(false);
     // Update textarea to show what's being processed
     setDescription(limitedNumbers.join('\n'));
     processNumbers(limitedNumbers);
-  };
+  }, [pendingNumbers, processNumbers]);
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     isCancelledRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     setIsChecking(false);
     setCheckResults(null);
-  };
+  }, []);
 
   // Voucher processing functions
   const processVoucherSerials = async (serials: string[]) => {
@@ -472,117 +425,158 @@ const Index = () => {
     }));
     setVoucherCheckResults(initialResults);
 
-    const CONCURRENCY_LIMIT = 5;
-    let currentIndex = 0;
+    const BATCH_SIZE = 5; // Process 5 vouchers per request
+    const TIMEOUT = 10000; // 10 second timeout (faster response)
+    const MAX_RETRIES = 2; // Retry 2 times
+    const RETRY_DELAY = 1000; // 1 second base delay
+
+    // Use number of valid tokens as concurrency level
+    // More tokens = more parallel workers = faster processing
+    const CONCURRENCY = validTokens.length;
+
+    // Create batches
+    const batches = createBatches(serials, BATCH_SIZE);
+
+    let currentBatchIndex = 0;
+    let globalBatchCounter = 0; // Track global batch index for token rotation
     let activeWorkers = 0;
 
     return new Promise<void>((resolve) => {
-      const processNext = async () => {
-        if (isCancelledRef.current || (currentIndex >= serials.length && activeWorkers === 0)) {
-          if (activeWorkers === 0) {
+      const processBatch = async (batch: string[], batchStartIndex: number, batchIndexForToken: number) => {
+        activeWorkers++;
+
+        // Get token for this batch using round-robin
+        const batchToken = getTokenForBatch(validTokens, batchIndexForToken);
+
+        // Client-side validation for batch
+        const validBatch: string[] = [];
+
+        batch.forEach((serial, idx) => {
+          const globalIndex = batchStartIndex + idx;
+
+          // Validate format
+          if (!isValidVoucherSerial(serial)) {
+            setVoucherCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+              updated[globalIndex] = {
+                serialNumber: serial,
+                status: "Format Salah",
+                isLoading: false,
+                isError: true,
+                errorMessage: "Serial harus berawalan 350 dan maksimal 12 digit"
+              };
+              return updated;
+            });
+            return;
+          }
+
+          validBatch.push(serial);
+        });
+
+        // Skip API call if no valid serials in batch
+        if (validBatch.length === 0) {
+          activeWorkers--;
+          if (!isCancelledRef.current && currentBatchIndex < batches.length) {
+            const nextBatch = batches[currentBatchIndex];
+            const nextStartIndex = currentBatchIndex * BATCH_SIZE;
+            const nextBatchIndexForToken = globalBatchCounter++;
+            currentBatchIndex++;
+            processBatch(nextBatch, nextStartIndex, nextBatchIndexForToken);
+          }
+
+          if (activeWorkers === 0 && currentBatchIndex >= batches.length) {
             setIsCheckingVoucher(false);
             resolve();
           }
           return;
         }
 
-        if (currentIndex >= serials.length) {
-          return;
-        }
-
-        const i = currentIndex++;
-        const serial = serials[i];
-        activeWorkers++;
-
-        // Add delay between requests (except for first batch)
-        if (i > 0 && i >= CONCURRENCY_LIMIT) {
-          await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
-        }
-
-        // Validate serial format before API call
-        if (!isValidVoucherSerial(serial)) {
-          setVoucherCheckResults(prev => {
-            if (!prev) return [];
-            const updated = [...prev];
-            updated[i] = {
-              serialNumber: serial,
-              status: "Format Salah",
-              isLoading: false,
-              isError: true,
-              errorMessage: "Serial harus berawalan 350 dan maksimal 12 digit"
-            };
-            return updated;
-          });
-          activeWorkers--;
-          processNext();
-          return;
-        }
-
         try {
-          // Use fetchWithRetry for better network reliability
           const response = await fetchWithRetry(
             "https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/voucherSPV1",
             {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                token,
-                serials: [serial],
+                token: batchToken, // Use rotated token for this batch
+                serials: validBatch,
                 timestamp: new Date().toISOString()
               }),
               signal: voucherAbortControllerRef.current?.signal,
             },
-            2, // max 2 retries
-            30000 // 30s timeout
+            MAX_RETRIES,
+            TIMEOUT,
+            RETRY_DELAY
           );
 
-          if (!isCancelledRef.current) {
-            if (response.ok) {
-              const data = await response.json();
-              let result: VoucherCheckResult;
+          if (!isCancelledRef.current && response.ok) {
+            const data = await response.json();
 
+            // Update results for entire batch
+            setVoucherCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
 
-              // Parse response - use 'Validasi' field for status (check multiple casings)
-              // Validasi: "Injected" or "Not Inject"
-              const validasiStatus = data.Validasi || data.validasi || data.status || "Unknown";
+              // Parse batch response
+              // Response structure: [{ SimInfo: [{voucher1}, {voucher2}, ...] }]
+              let results: any[] = [];
 
-              result = {
-                serialNumber: data.SerialNumber || serial,
-                status: validasiStatus,
-                isLoading: false,
-                additionalInfo: data
-              };
+              if (Array.isArray(data) && data.length > 0 && data[0].SimInfo && Array.isArray(data[0].SimInfo)) {
+                // Extract from SimInfo wrapper
+                results = data[0].SimInfo;
+              } else if (Array.isArray(data)) {
+                results = data;
+              } else if (data.results && Array.isArray(data.results)) {
+                results = data.results;
+              } else if (data.SimInfo && Array.isArray(data.SimInfo)) {
+                // Single object with SimInfo array
+                results = data.SimInfo;
+              } else if (validBatch.length === 1) {
+                results = [data];
+              }
 
+              results.forEach((item: any, idx: number) => {
+                const globalIndex = batchStartIndex + idx;
+                const serial = validBatch[idx] || batch[idx];
 
-              setVoucherCheckResults(prev => {
-                if (!prev) return [result];
-                const updated = [...prev];
-                updated[i] = result;
-                return updated;
+                // Support both uppercase and lowercase field names
+                const validasiStatus = item.validasi || item.Validasi || item.status || "Unknown";
+                const serialNumber = item.serialNumber || item.SerialNumber || serial;
+
+                updated[globalIndex] = {
+                  serialNumber: serialNumber,
+                  status: validasiStatus,
+                  isLoading: false,
+                  additionalInfo: item
+                };
               });
-            } else {
-              setVoucherCheckResults(prev => {
-                if (!prev) return [];
-                const updated = [...prev];
-                updated[i] = {
+
+              return updated;
+            });
+          } else if (!isCancelledRef.current) {
+            // Mark entire batch as error
+            setVoucherCheckResults(prev => {
+              if (!prev) return [];
+              const updated = [...prev];
+              validBatch.forEach((serial, idx) => {
+                updated[batchStartIndex + idx] = {
                   serialNumber: serial,
                   status: "Error",
                   isLoading: false,
                   isError: true,
-                  errorMessage: `HTTP ${response.status}`
+                  errorMessage: `Batch Error: HTTP ${response.status}`
                 };
-                return updated;
               });
-            }
+              return updated;
+            });
           }
         } catch (error: any) {
           if (!isCancelledRef.current) {
             let errorMsg = "Network Error";
 
             if (error.name === 'AbortError') {
-              errorMsg = "Request Timeout (30s)";
+              errorMsg = "Request Timeout (10s)";
             } else if (error.message?.includes('Failed to fetch')) {
               errorMsg = "Connection Failed";
             } else if (error.message?.includes('NetworkError')) {
@@ -592,38 +586,53 @@ const Index = () => {
             setVoucherCheckResults(prev => {
               if (!prev) return [];
               const updated = [...prev];
-              updated[i] = {
-                serialNumber: serial,
-                status: "Error",
-                isLoading: false,
-                isError: true,
-                errorMessage: errorMsg
-              };
+              validBatch.forEach((serial, idx) => {
+                updated[batchStartIndex + idx] = {
+                  serialNumber: serial,
+                  status: "Error",
+                  isLoading: false,
+                  isError: true,
+                  errorMessage: errorMsg
+                };
+              });
               return updated;
             });
           }
         } finally {
           activeWorkers--;
-          if (!isCancelledRef.current) {
-            processNext();
+
+          if (!isCancelledRef.current && currentBatchIndex < batches.length) {
+            const nextBatch = batches[currentBatchIndex];
+            const nextStartIndex = currentBatchIndex * BATCH_SIZE;
+            const nextBatchIndexForToken = globalBatchCounter++;
+            currentBatchIndex++;
+            processBatch(nextBatch, nextStartIndex, nextBatchIndexForToken);
           }
 
-          if (activeWorkers === 0 && currentIndex >= serials.length) {
+          if (activeWorkers === 0 && currentBatchIndex >= batches.length) {
             setIsCheckingVoucher(false);
             resolve();
           }
         }
       };
 
-      // Start initial workers
-      for (let w = 0; w < CONCURRENCY_LIMIT; w++) {
-        processNext();
+      // Start initial batch workers
+      const initialBatches = Math.min(CONCURRENCY, batches.length);
+      for (let i = 0; i < initialBatches; i++) {
+        processBatch(batches[i], i * BATCH_SIZE, globalBatchCounter++);
+        currentBatchIndex++;
+      }
+
+      // Handle empty input
+      if (batches.length === 0) {
+        setIsCheckingVoucher(false);
+        resolve();
       }
     });
   };
 
-  const handleCheckVoucherNow = () => {
-    if (!token) {
+  const handleCheckVoucherNow = useCallback(() => {
+    if (!token || validTokens.length === 0) {
       setIsTokenModalOpen(true);
       return;
     }
@@ -669,25 +678,25 @@ const Index = () => {
     }
 
     processVoucherSerials(serials);
-  };
+  }, [token, voucherInputRows, voucherDescription, generateSequentialSerials, processVoucherSerials]);
 
-  const handleProceedWithVoucherLimit = () => {
+  const handleProceedWithVoucherLimit = useCallback(() => {
     const limitedSerials = pendingVoucherSerials.slice(0, 750);
     setIsVoucherLimitAlertOpen(false);
     setVoucherDescription(limitedSerials.join('\n'));
     processVoucherSerials(limitedSerials);
-  };
+  }, [pendingVoucherSerials, processVoucherSerials]);
 
-  const handleCancelVoucher = () => {
+  const handleCancelVoucher = useCallback(() => {
     isCancelledRef.current = true;
     if (voucherAbortControllerRef.current) {
       voucherAbortControllerRef.current.abort();
     }
     setIsCheckingVoucher(false);
     setVoucherCheckResults(null);
-  };
+  }, []);
 
-  const handleDownloadVoucherExcel = () => {
+  const handleDownloadVoucherExcel = useCallback(() => {
     if (!voucherCheckResults || voucherCheckResults.length === 0) return;
 
     // Helper function to safely extract field value with case-insensitive matching
@@ -760,10 +769,10 @@ const Index = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Hasil Cek Voucher");
     XLSX.writeFile(wb, `hasil-cek-voucher-${new Date().toISOString().split('T')[0]}.xlsx`);
-  };
+  }, [voucherCheckResults]);
 
 
-  const handleDownloadExcel = () => {
+  const handleDownloadExcel = useCallback(() => {
     if (!checkResults || checkResults.length === 0) return;
 
     const excelData = checkResults.map((result, idx) => {
@@ -785,7 +794,7 @@ const Index = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Hasil Pengecekan");
     XLSX.writeFile(wb, `hasil-cek-kartu-${new Date().toISOString().split('T')[0]}.xlsx`);
-  };
+  }, [checkResults]);
 
   const allChecksCompleted = checkResults && checkResults.length > 0 && checkResults.every(r => !r.isLoading);
 
@@ -1155,7 +1164,11 @@ const Index = () => {
       <TokenModal
         isOpen={isTokenModalOpen}
         onOpenChange={setIsTokenModalOpen}
-        onSaveToken={setToken}
+        onSaveToken={(tokenInput, validTokensArray) => {
+          setToken(tokenInput);
+          setValidTokens(validTokensArray);
+          toast.success(`Token tersimpan! ${validTokensArray.length} token valid siap digunakan.`);
+        }}
       />
 
       {/* Limit Warning Dialog */}
