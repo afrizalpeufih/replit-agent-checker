@@ -36,22 +36,21 @@ export default defineConfig(({ mode }) => ({
       },
     },
     rollupOptions: {
-      treeshake: {
-        moduleSideEffects: false,
-        propertyReadSideEffects: false,
-      },
       output: {
-        manualChunks: {
-          'react-core': ['react', 'react-dom'],
-          'react-router': ['react-router-dom'],
-          'tanstack-query': ['@tanstack/react-query'],
-          'ui-dialog': ['@radix-ui/react-dialog', '@radix-ui/react-alert-dialog'],
-          'ui-forms': ['@radix-ui/react-label', '@radix-ui/react-slot'],
-          'ui-feedback': ['@radix-ui/react-toast', '@radix-ui/react-progress', '@radix-ui/react-tooltip'],
-          'ui-navigation': ['@radix-ui/react-tabs'],
-          'xlsx-vendor': ['xlsx'],
-          'analytics': ['@vercel/analytics', '@vercel/speed-insights'],
-          'ui-utils': ['class-variance-authority', 'clsx', 'tailwind-merge'],
+        manualChunks(id) {
+          // Simplified chunking strategy to avoid empty chunks
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'vendor-react';
+            }
+            if (id.includes('@radix-ui')) {
+              return 'vendor-ui';
+            }
+            if (id.includes('xlsx')) {
+              return 'vendor-xlsx';
+            }
+            return 'vendor';
+          }
         },
       },
     },
