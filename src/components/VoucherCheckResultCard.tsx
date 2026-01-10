@@ -12,10 +12,16 @@ interface VoucherCheckResult {
 
 interface VoucherCheckResultCardProps {
     result: VoucherCheckResult;
+    initialExpanded?: boolean;
 }
 
-export const VoucherCheckResultCard = React.memo(function VoucherCheckResultCard({ result }: VoucherCheckResultCardProps) {
-    const [isExpanded, setIsExpanded] = useState(false);
+export const VoucherCheckResultCard = React.memo(function VoucherCheckResultCard({ result, initialExpanded = false }: VoucherCheckResultCardProps) {
+    const [isExpanded, setIsExpanded] = useState(initialExpanded);
+
+    // Update expansion state if prop changes (e.g. after loading)
+    React.useEffect(() => {
+        setIsExpanded(initialExpanded);
+    }, [initialExpanded]);
 
     // Show loading state
     if (result.isLoading) {
@@ -124,14 +130,18 @@ export const VoucherCheckResultCard = React.memo(function VoucherCheckResultCard
 
     const indukNumber = getField(info, 'IndukNumber') !== "-" ? getField(info, 'IndukNumber') :
         getField(info, 'indukNumber') !== "-" ? getField(info, 'indukNumber') :
-            serialNumber;
+            getField(info, 'induk_number') !== "-" ? getField(info, 'induk_number') :
+                getField(info, 'Msisdn') !== "-" ? getField(info, 'Msisdn') :
+                    getField(info, 'msisdn') !== "-" ? getField(info, 'msisdn') :
+                        serialNumber;
 
     const description = getField(info, 'Description') !== "-" ? getField(info, 'Description') :
         getField(info, 'description');
 
     const unlockDate = getField(info, 'UnlockDate') !== "-" ? getField(info, 'UnlockDate') :
         getField(info, 'unlockDate') !== "-" ? getField(info, 'unlockDate') :
-            getField(info, 'unlock_date');
+            getField(info, 'unlock_date') !== "-" ? getField(info, 'unlock_date') :
+                "-"; // Using strict unlockDate from response as requested
 
     const expiryDate = getField(info, 'ExpiryDate') !== "-" ? getField(info, 'ExpiryDate') :
         getField(info, 'expiryDate') !== "-" ? getField(info, 'expiryDate') :
