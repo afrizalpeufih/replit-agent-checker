@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback } from "react";
-import { Download, X } from "lucide-react";
+import { Download, X, RefreshCw } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import * as XLSX from "xlsx";
 import { TokenModal } from "@/components/TokenModal";
@@ -80,6 +80,10 @@ const Index = () => {
   const [isCheckingVoucher, setIsCheckingVoucher] = useState(false);
   const [voucherTextareaFocused, setVoucherTextareaFocused] = useState(false);
   const voucherAbortControllerRef = useRef<AbortController | null>(null);
+
+  // Filter state for status badges
+  const [cardStatusFilter, setCardStatusFilter] = useState<string | null>(null);
+  const [voucherStatusFilter, setVoucherStatusFilter] = useState<string | null>(null);
 
   // Handler functions for multiple rows
   const handleAddRow = useCallback(() => {
@@ -414,6 +418,25 @@ const Index = () => {
     setCheckResults(null);
   }, []);
 
+  // Retry failed card checks
+  const handleRetryFailedCards = useCallback(() => {
+    if (!checkResults) return;
+
+    // Extract all failed numbers
+    const failedNumbers = checkResults
+      .filter(r => r.isError || r.status?.toLowerCase() === "unknown")
+      .map(r => r.number);
+
+    if (failedNumbers.length === 0) {
+      toast.error("Tidak ada nomor yang gagal untuk diproses ulang");
+      return;
+    }
+
+    // Clear filter and restart checking
+    setCardStatusFilter(null);
+    processNumbers(failedNumbers);
+  }, [checkResults, processNumbers]);
+
   // Voucher processing functions
   const processVoucherSerials = async (serials: string[]) => {
     setIsCheckingVoucher(true);
@@ -700,6 +723,25 @@ const Index = () => {
     setVoucherCheckResults(null);
   }, []);
 
+  // Retry failed voucher checks
+  const handleRetryFailedVouchers = useCallback(() => {
+    if (!voucherCheckResults) return;
+
+    // Extract all failed serials
+    const failedSerials = voucherCheckResults
+      .filter(r => r.isError || r.status?.toLowerCase() === "unknown")
+      .map(r => r.serialNumber);
+
+    if (failedSerials.length === 0) {
+      toast.error("Tidak ada voucher yang gagal untuk diproses ulang");
+      return;
+    }
+
+    // Clear filter and restart checking
+    setVoucherStatusFilter(null);
+    processVoucherSerials(failedSerials);
+  }, [voucherCheckResults, processVoucherSerials]);
+
   const handleDownloadVoucherExcel = useCallback(() => {
     if (!voucherCheckResults || voucherCheckResults.length === 0) return;
 
@@ -837,6 +879,50 @@ const Index = () => {
     };
   }, [checkResults]);
 
+  // Filtered results based on active filter
+  const filteredCheckResults = useMemo(() => {
+    if (!checkResults) return null;
+    if (!cardStatusFilter) return checkResults;
+
+    return checkResults.filter(r => {
+      if (r.isLoading) return true; // Always show loading items
+
+      switch (cardStatusFilter) {
+        case 'aktif':
+          return !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" &&
+            (r.status?.toLowerCase() === "aktif" || r.status?.toLowerCase() === "mantap" || r.status?.toLowerCase() === "success");
+        case 'masa-tenggang':
+          return !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && r.status?.toLowerCase() === "masa tenggang";
+        case 'tidak-aktif':
+          return !r.isError && (!r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "") && r.status?.toLowerCase() !== "unknown";
+        case 'gagal':
+          return r.isError || r.status?.toLowerCase() === "unknown";
+        default:
+          return true;
+      }
+    });
+  }, [checkResults, cardStatusFilter]);
+
+  const filteredVoucherCheckResults = useMemo(() => {
+    if (!voucherCheckResults) return null;
+    if (!voucherStatusFilter) return voucherCheckResults;
+
+    return voucherCheckResults.filter(r => {
+      if (r.isLoading) return true; // Always show loading items
+
+      switch (voucherStatusFilter) {
+        case 'injected':
+          return !r.isError && r.status?.toLowerCase() === "injected";
+        case 'not-inject':
+          return !r.isError && (r.status?.toLowerCase().includes("not") || r.status?.toLowerCase().includes("gagal"));
+        case 'gagal':
+          return r.isError || r.status?.toLowerCase() === "unknown";
+        default:
+          return true;
+      }
+    });
+  }, [voucherCheckResults, voucherStatusFilter]);
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -971,18 +1057,54 @@ const Index = () => {
                         <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
                           {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
                         </span>
-                        <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
+                        <span
+                          onClick={() => setCardStatusFilter(cardStatusFilter === 'aktif' ? null : 'aktif')}
+                          className={`text-xs px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 select-none ${cardStatusFilter === 'aktif'
+                            ? 'bg-success text-white shadow-lg shadow-success/50 ring-2 ring-success/50'
+                            : 'bg-success/20 text-success hover:bg-success/30'
+                            }`}
+                        >
                           {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && (r.status?.toLowerCase() === "aktif" || r.status?.toLowerCase() === "mantap" || r.status?.toLowerCase() === "success")).length} Aktif
                         </span>
-                        <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                        <span
+                          onClick={() => setCardStatusFilter(cardStatusFilter === 'masa-tenggang' ? null : 'masa-tenggang')}
+                          className={`text-xs px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 select-none ${cardStatusFilter === 'masa-tenggang'
+                            ? 'bg-yellow-500 text-white shadow-lg shadow-yellow-500/50 ring-2 ring-yellow-500/50'
+                            : 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                            }`}
+                        >
                           {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && r.status?.toLowerCase() === "masa tenggang").length} Masa Tenggang
                         </span>
-                        <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
+                        <span
+                          onClick={() => setCardStatusFilter(cardStatusFilter === 'tidak-aktif' ? null : 'tidak-aktif')}
+                          className={`text-xs px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 select-none ${cardStatusFilter === 'tidak-aktif'
+                            ? 'bg-destructive text-white shadow-lg shadow-destructive/50 ring-2 ring-destructive/50'
+                            : 'bg-destructive/20 text-destructive hover:bg-destructive/30'
+                            }`}
+                        >
                           {checkResults.filter(r => !r.isLoading && !r.isError && (!r.masa_tenggung || r.masa_tenggung === "N/A" || r.masa_tenggung.trim() === "") && r.status?.toLowerCase() !== "unknown").length} Tidak Aktif
                         </span>
-                        <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
+                        <span
+                          onClick={() => {
+                            if (cardStatusFilter === 'gagal') {
+                              handleRetryFailedCards();
+                            } else {
+                              setCardStatusFilter('gagal');
+                            }
+                          }}
+                          className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 cursor-pointer hover:bg-red-900/60 transition-all select-none"
+                        >
                           {checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
                         </span>
+                        {cardStatusFilter === 'gagal' && checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
+                          <button
+                            onClick={handleRetryFailedCards}
+                            className="text-xs bg-red-900/40 text-red-500 px-1.5 py-0.5 rounded-full border border-red-500/50 hover:bg-red-900/60 transition-all"
+                            title="Proses Ulang"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        )}
                       </h4>
                       <Progress
                         value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100}
@@ -1007,11 +1129,11 @@ const Index = () => {
               )}
 
               {/* Results List */}
-              {checkResults && (
+              {filteredCheckResults && (
                 <div className="mt-6 sm:mt-8 space-y-4">
                   <div className="hidden"></div> {/* Spacer placeholder */}
                   <div className="grid gap-4">
-                    {checkResults.map((result) => (
+                    {filteredCheckResults.map((result) => (
                       <CheckResultCard key={result.number} result={result} />
                     ))}
                   </div>
@@ -1161,15 +1283,45 @@ const Index = () => {
                         <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
                           {voucherCheckResults.filter(r => !r.isLoading).length}/{voucherCheckResults.length} Voucher
                         </span>
-                        <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full">
+                        <span
+                          onClick={() => setVoucherStatusFilter(voucherStatusFilter === 'injected' ? null : 'injected')}
+                          className={`text-xs px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 select-none ${voucherStatusFilter === 'injected'
+                              ? 'bg-success text-white shadow-lg shadow-success/50 ring-2 ring-success/50'
+                              : 'bg-success/20 text-success hover:bg-success/30'
+                            }`}
+                        >
                           {voucherCheckResults.filter(r => !r.isLoading && !r.isError && r.status?.toLowerCase() === "injected").length} Injected
                         </span>
-                        <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
+                        <span
+                          onClick={() => setVoucherStatusFilter(voucherStatusFilter === 'not-inject' ? null : 'not-inject')}
+                          className={`text-xs px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 select-none ${voucherStatusFilter === 'not-inject'
+                              ? 'bg-destructive text-white shadow-lg shadow-destructive/50 ring-2 ring-destructive/50'
+                              : 'bg-destructive/20 text-destructive hover:bg-destructive/30'
+                            }`}
+                        >
                           {voucherCheckResults.filter(r => !r.isLoading && !r.isError && (r.status?.toLowerCase().includes("not") || r.status?.toLowerCase().includes("gagal"))).length} Not Inject
                         </span>
-                        <span className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50">
+                        <span
+                          onClick={() => {
+                            if (voucherStatusFilter === 'gagal') {
+                              handleRetryFailedVouchers();
+                            } else {
+                              setVoucherStatusFilter('gagal');
+                            }
+                          }}
+                          className="text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 cursor-pointer hover:bg-red-900/60 transition-all select-none"
+                        >
                           {voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
                         </span>
+                        {voucherStatusFilter === 'gagal' && voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
+                          <button
+                            onClick={handleRetryFailedVouchers}
+                            className="text-xs bg-red-900/40 text-red-500 px-1.5 py-0.5 rounded-full border border-red-500/50 hover:bg-red-900/60 transition-all"
+                            title="Proses Ulang"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        )}
                       </h4>
                       <Progress
                         value={(voucherCheckResults.filter(r => !r.isLoading).length / voucherCheckResults.length) * 100}
@@ -1181,11 +1333,11 @@ const Index = () => {
               )}
 
               {/* Results List */}
-              {voucherCheckResults && (
+              {filteredVoucherCheckResults && (
                 <div className="mt-6 sm:mt-8 space-y-4">
                   <div className="hidden"></div> {/* Spacer placeholder */}
                   <div className="grid gap-4">
-                    {voucherCheckResults.map((result) => (
+                    {filteredVoucherCheckResults.map((result) => (
                       <VoucherCheckResultCard key={result.serialNumber} result={result} />
                     ))}
                   </div>
