@@ -94,16 +94,20 @@ const Index = () => {
   }, [voucherInputRows.length]);
 
   const handleUpdateSnAwal = useCallback((id: number, value: string) => {
+    // Only allow numbers, max 12 digits
+    const numericValue = value.replace(/[^0-9]/g, '').slice(0, 12);
     setVoucherInputRows(prev => prev.map(row =>
-      row.id === id ? { ...row, snAwal: value } : row
+      row.id === id ? { ...row, snAwal: numericValue } : row
     ));
     // Clear error when user starts typing
     setErrorRowId(prev => prev === id ? null : prev);
   }, []);
 
   const handleUpdateSnAkhir = useCallback((id: number, value: string) => {
+    // Only allow numbers, max 12 digits
+    const numericValue = value.replace(/[^0-9]/g, '').slice(0, 12);
     setVoucherInputRows(prev => prev.map(row =>
-      row.id === id ? { ...row, snAkhir: value } : row
+      row.id === id ? { ...row, snAkhir: numericValue } : row
     ));
     // Clear error when user starts typing
     setErrorRowId(prev => prev === id ? null : prev);
@@ -464,7 +468,7 @@ const Index = () => {
                 status: "Format Salah",
                 isLoading: false,
                 isError: true,
-                errorMessage: "Serial harus berawalan 350 dan maksimal 12 digit"
+                errorMessage: "Serial harus berupa angka valid"
               };
               return updated;
             });
@@ -671,7 +675,7 @@ const Index = () => {
     // Remove duplicates - ensure unique serial numbers only
     serials = Array.from(new Set(serials));
 
-    if (serials.length > 750) {
+    if (serials.length > 3000) {
       setPendingVoucherSerials(serials);
       setIsVoucherLimitAlertOpen(true);
       return;
@@ -681,7 +685,7 @@ const Index = () => {
   }, [token, voucherInputRows, voucherDescription, generateSequentialSerials, processVoucherSerials]);
 
   const handleProceedWithVoucherLimit = useCallback(() => {
-    const limitedSerials = pendingVoucherSerials.slice(0, 750);
+    const limitedSerials = pendingVoucherSerials.slice(0, 3000);
     setIsVoucherLimitAlertOpen(false);
     setVoucherDescription(limitedSerials.join('\n'));
     processVoucherSerials(limitedSerials);
@@ -897,15 +901,26 @@ const Index = () => {
               {!isChecking && !checkResults && (
                 <>
                   <div className="card-glass rounded-xl p-4 sm:p-6">
-                    <h3 className="text-foreground font-semibold font-display mb-2 select-none">
-                      Masukkan Nomor Kartu
-                    </h3>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-foreground font-semibold font-display select-none">
+                        Masukkan Nomor Kartu
+                      </h3>
+                      {description.trim() && (
+                        <div className="text-xs font-mono font-medium px-2 py-1 rounded-md bg-muted text-muted-foreground border border-border/50 select-none">
+                          {description.split('\n').filter(l => l.trim()).length} pcs
+                        </div>
+                      )}
+                    </div>
                     <p className="text-muted-foreground text-sm mb-4 select-none">
                       Bisa cek 1pcs hingga 300pcs. Contoh pengisian ada di bawah ini:
                     </p>
                     <textarea
                       value={description}
-                      onChange={(e) => setDescription(e.target.value)}
+                      onChange={(e) => {
+                        // Only allow numbers and newlines
+                        const numericValue = e.target.value.replace(/[^0-9\n]/g, '');
+                        setDescription(numericValue);
+                      }}
                       onFocus={() => setTextareaFocused(true)}
                       onBlur={() => setTextareaFocused(false)}
                       placeholder={"0898xxxxxxx\n0897xxxxxxx\n0896xxxxxxx\n0895xxxxxxx\nDan seterusnya"}
@@ -1015,7 +1030,7 @@ const Index = () => {
                       Masukkan Serial Number Voucher
                     </h3>
                     <p className="text-muted-foreground text-sm mb-4 select-none">
-                      Bisa cek 1pcs hingga 750pcs. Serial number wajib berawalan 350 dan maks 12 digit:
+                      Bisa cek 1pcs hingga 3000pcs. Serial number bebas (angka):
                     </p>
 
                     {/* Multiple Input Rows */}
@@ -1032,10 +1047,10 @@ const Index = () => {
                                 SN Awal
                               </label>
                               <input
-                                type="text"
+                                type="number"
                                 value={row.snAwal}
                                 onChange={(e) => handleUpdateSnAwal(row.id, e.target.value)}
-                                placeholder="350xxxxxxxxx"
+                                placeholder="xxxxxxxxxxxx"
                                 maxLength={12}
                                 className={`input-dark ${errorRowId === row.id ? 'border-2 border-red-500' : ''}`}
                               />
@@ -1047,26 +1062,47 @@ const Index = () => {
                                 SN Akhir
                               </label>
                               <input
-                                type="text"
+                                type="number"
                                 value={row.snAkhir}
                                 onChange={(e) => handleUpdateSnAkhir(row.id, e.target.value)}
-                                placeholder="350xxxxxxxxx"
+                                placeholder="xxxxxxxxxxxx"
                                 maxLength={12}
                                 className={`input-dark ${errorRowId === row.id ? 'border-2 border-red-500' : ''}`}
                               />
                             </div>
                           </div>
 
-                          {/* Remove button - positioned at top right, only show if more than 1 row */}
-                          {voucherInputRows.length > 1 && (
-                            <button
-                              onClick={() => handleRemoveRow(row.id)}
-                              className="absolute top-2 right-2 p-1 rounded-md bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all"
-                              title="Hapus baris"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          {/* Row Actions (Count & Remove) - Absolute Top Right */}
+                          <div className="absolute top-2 right-2 flex items-center gap-2">
+                            {/* Count Display */}
+                            {(() => {
+                              if (!row.snAwal || !row.snAkhir) return null;
+                              try {
+                                const start = BigInt(row.snAwal);
+                                const end = BigInt(row.snAkhir);
+                                const diff = end - start + 1n;
+                                if (diff > 0n) {
+                                  return (
+                                    <div className="text-xs font-mono font-medium px-2 py-1 rounded-md bg-muted text-muted-foreground border border-border/50 select-none">
+                                      {diff.toString()} pcs
+                                    </div>
+                                  );
+                                }
+                              } catch (e) { return null; }
+                              return null;
+                            })()}
+
+                            {/* Remove Button */}
+                            {voucherInputRows.length > 1 && (
+                              <button
+                                onClick={() => handleRemoveRow(row.id)}
+                                className="p-1 rounded-md bg-destructive/20 border border-destructive/50 text-destructive hover:bg-destructive/30 transition-all"
+                                title="Hapus baris"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
 
@@ -1087,7 +1123,7 @@ const Index = () => {
                   {/* Submit Button */}
                   <button
                     onClick={handleCheckVoucherNow}
-                    disabled={!voucherInputRows.some(row => row.snAwal.trim().length >= 12)}
+                    disabled={!voucherInputRows.some(row => row.snAwal.trim().length > 0)}
                     className="w-full btn-gradient py-3 rounded-lg transition-all duration-200 select-none disabled:opacity-50 disabled:cursor-not-allowed font-display"
                   >
                     Cek Sekarang
@@ -1193,15 +1229,15 @@ const Index = () => {
       <AlertDialog open={isVoucherLimitAlertOpen} onOpenChange={setIsVoucherLimitAlertOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Maksimal input 750 voucher</AlertDialogTitle>
+            <AlertDialogTitle>Maksimal input 3000 voucher</AlertDialogTitle>
             <AlertDialogDescription>
-              Jumlah serial voucher yang Anda inputkan melebihi batas 750. Apakah Anda ingin tetap melanjutkan proses untuk 750 voucher saja?
+              Jumlah serial voucher yang Anda inputkan melebihi batas 3000. Apakah Anda ingin tetap melanjutkan proses untuk 3000 voucher saja?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setIsVoucherLimitAlertOpen(false)}>Batal</AlertDialogCancel>
             <AlertDialogAction onClick={handleProceedWithVoucherLimit}>
-              Ya, Proses 750 Voucher
+              Ya, Proses 3000 Voucher
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

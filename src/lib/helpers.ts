@@ -16,7 +16,8 @@ export const isValidPhoneNumber = (number: string): boolean => {
  */
 export const isValidVoucherSerial = (serial: string): boolean => {
     const cleanSerial = serial.trim();
-    return cleanSerial.startsWith('350') && cleanSerial.length <= 12 && /^\d+$/.test(cleanSerial);
+    // User requested free format, only number requirement remains
+    return /^\d+$/.test(cleanSerial);
 };
 
 /**
