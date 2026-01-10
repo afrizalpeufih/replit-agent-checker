@@ -297,7 +297,7 @@ const Index = () => {
 
         try {
           const response = await fetchWithRetry(
-            "https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/adakadabra-simsalabim",
+            import.meta.env.VITE_API_CARD_URL,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -643,7 +643,7 @@ const Index = () => {
 
         try {
           const response = await fetchWithRetry(
-            "https://n8n-tg6l96v1wbg0.n8x.biz.id/webhook/voucherSPV1",
+            import.meta.env.VITE_API_VOUCHER_URL,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
