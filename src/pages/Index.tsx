@@ -260,7 +260,7 @@ const Index = () => {
     };
   }, [wasOffline]);
 
-  const processNumbers = async (numbers: string[]) => {
+  const processNumbers = async (numbers: string[], isRetry = false) => {
     // Check network quality and get optimal settings
     const settings = getOptimalSettings();
 
@@ -282,7 +282,6 @@ const Index = () => {
     }
 
     setIsChecking(true);
-    setCheckResults([]);
     setErrorResponse(null);
     isCancelledRef.current = false;
     abortControllerRef.current = new AbortController();
@@ -292,13 +291,25 @@ const Index = () => {
       addLogMessage(`Starting check for ${numbers.length} numbers...`);
     }
 
-    // Initialize all numbers as loading
     const initialResults: CheckResult[] = numbers.map(num => ({
       number: num,
       status: "",
       isLoading: true,
     }));
-    setCheckResults(initialResults);
+
+    if (!isRetry) {
+      setCheckResults(initialResults);
+    } else {
+      // Mark specific numbers as loading in existing state
+      setCheckResults(prev => {
+        if (!prev) return initialResults;
+        return prev.map(item =>
+          numbers.includes(item.number)
+            ? { ...item, status: "", isLoading: true, isError: false, errorMessage: undefined }
+            : item
+        );
+      });
+    }
 
     const { BATCH_SIZE, TIMEOUT, MAX_RETRIES, RETRY_DELAY } = settings;
 
@@ -337,13 +348,26 @@ const Index = () => {
             setCheckResults(prev => {
               if (!prev) return [];
               const updated = [...prev];
-              updated[globalIndex] = {
-                number: num,
-                status: "Gagal",
-                isLoading: false,
-                isError: true,
-                errorMessage: "Maksimal 13 digit"
-              };
+              if (isRetry) {
+                const targetIndex = updated.findIndex(r => r.number === num);
+                if (targetIndex !== -1) {
+                  updated[targetIndex] = {
+                    number: num,
+                    status: "Gagal",
+                    isLoading: false,
+                    isError: true,
+                    errorMessage: "Maksimal 13 digit"
+                  };
+                }
+              } else {
+                updated[globalIndex] = {
+                  number: num,
+                  status: "Gagal",
+                  isLoading: false,
+                  isError: true,
+                  errorMessage: "Maksimal 13 digit"
+                };
+              }
               return updated;
             });
             invalidIndices.push(idx);
@@ -355,13 +379,26 @@ const Index = () => {
             setCheckResults(prev => {
               if (!prev) return [];
               const updated = [...prev];
-              updated[globalIndex] = {
-                number: num,
-                status: "Format Salah",
-                isLoading: false,
-                isError: true,
-                errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
-              };
+              if (isRetry) {
+                const targetIndex = updated.findIndex(r => r.number === num);
+                if (targetIndex !== -1) {
+                  updated[targetIndex] = {
+                    number: num,
+                    status: "Format Salah",
+                    isLoading: false,
+                    isError: true,
+                    errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
+                  };
+                }
+              } else {
+                updated[globalIndex] = {
+                  number: num,
+                  status: "Format Salah",
+                  isLoading: false,
+                  isError: true,
+                  errorMessage: "Nomor harus berawalan 089x (x=5,6,7,8,9)"
+                };
+              }
               return updated;
             });
             invalidIndices.push(idx);
@@ -433,7 +470,7 @@ const Index = () => {
                 const globalIndex = batchStartIndex + idx;
                 const num = validBatch[idx] || batch[idx];
 
-                updated[globalIndex] = {
+                const newData = {
                   number: item.nomor || num,
                   status: item.status || "Aktif",
                   masa_tenggung: item.masaTenggang,
@@ -447,6 +484,15 @@ const Index = () => {
                   isLoading: false,
                   callPlan: item.callPlan,
                 };
+
+                if (isRetry) {
+                  const targetIndex = updated.findIndex(r => r.number === num);
+                  if (targetIndex !== -1) {
+                    updated[targetIndex] = newData;
+                  }
+                } else {
+                  updated[globalIndex] = newData;
+                }
               });
 
               return updated;
@@ -457,13 +503,22 @@ const Index = () => {
               if (!prev) return [];
               const updated = [...prev];
               validBatch.forEach((num, idx) => {
-                updated[batchStartIndex + idx] = {
+                const errorData = {
                   number: num,
                   status: "Error",
                   isLoading: false,
                   isError: true,
                   errorMessage: `Batch Error: HTTP ${response.status}`
                 };
+
+                if (isRetry) {
+                  const targetIndex = updated.findIndex(r => r.number === num);
+                  if (targetIndex !== -1) {
+                    updated[targetIndex] = errorData;
+                  }
+                } else {
+                  updated[batchStartIndex + idx] = errorData;
+                }
               });
               return updated;
             });
@@ -484,13 +539,22 @@ const Index = () => {
               if (!prev) return [];
               const updated = [...prev];
               validBatch.forEach((num, idx) => {
-                updated[batchStartIndex + idx] = {
+                const errorData = {
                   number: num,
                   status: "Error",
                   isLoading: false,
                   isError: true,
                   errorMessage: errorMsg
                 };
+
+                if (isRetry) {
+                  const targetIndex = updated.findIndex(r => r.number === num);
+                  if (targetIndex !== -1) {
+                    updated[targetIndex] = errorData;
+                  }
+                } else {
+                  updated[batchStartIndex + idx] = errorData;
+                }
               });
               return updated;
             });
@@ -628,7 +692,7 @@ const Index = () => {
 
     // Clear filter and restart checking
     setCardStatusFilter(null);
-    processNumbers(failedNumbers);
+    processNumbers(failedNumbers, true);
   }, [checkResults, processNumbers]);
 
   // Retry from connection restore dialog - Card
@@ -656,7 +720,7 @@ const Index = () => {
   }, [voucherCheckResults]);
 
   // Voucher processing functions
-  const processVoucherSerials = async (serials: string[]) => {
+  const processVoucherSerials = async (serials: string[], isRetry = false) => {
     // Determine if we should use log view based on input size
     const useLogView = serials.length > 150;
 
@@ -670,7 +734,6 @@ const Index = () => {
     }
 
     setIsCheckingVoucher(true);
-    setVoucherCheckResults([]);
     isCancelledRef.current = false;
     voucherAbortControllerRef.current = new AbortController();
 
@@ -685,7 +748,20 @@ const Index = () => {
       status: "",
       isLoading: true,
     }));
-    setVoucherCheckResults(initialResults);
+
+    if (!isRetry) {
+      setVoucherCheckResults(initialResults);
+    } else {
+      // Mark specific serials as loading in existing state
+      setVoucherCheckResults(prev => {
+        if (!prev) return initialResults;
+        return prev.map(item =>
+          serials.includes(item.serialNumber)
+            ? { ...item, status: "", isLoading: true, isError: false, errorMessage: undefined }
+            : item
+        );
+      });
+    }
 
     const BATCH_SIZE = 5; // Process 5 vouchers per request
     const TIMEOUT = 10000; // 10 second timeout (faster response)
@@ -726,13 +802,26 @@ const Index = () => {
             setVoucherCheckResults(prev => {
               if (!prev) return [];
               const updated = [...prev];
-              updated[globalIndex] = {
-                serialNumber: serial,
-                status: "Format Salah",
-                isLoading: false,
-                isError: true,
-                errorMessage: "Serial harus berupa angka valid"
-              };
+              if (isRetry) {
+                const targetIndex = updated.findIndex(r => r.serialNumber === serial);
+                if (targetIndex !== -1) {
+                  updated[targetIndex] = {
+                    serialNumber: serial,
+                    status: "Format Salah",
+                    isLoading: false,
+                    isError: true,
+                    errorMessage: "Serial harus berupa angka valid"
+                  };
+                }
+              } else {
+                updated[globalIndex] = {
+                  serialNumber: serial,
+                  status: "Format Salah",
+                  isLoading: false,
+                  isError: true,
+                  errorMessage: "Serial harus berupa angka valid"
+                };
+              }
               return updated;
             });
             return;
@@ -815,12 +904,21 @@ const Index = () => {
                 const validasiStatus = item.validasi || item.Validasi || item.status || "Unknown";
                 const serialNumber = item.serialNumber || item.SerialNumber || serial;
 
-                updated[globalIndex] = {
+                const newData = {
                   serialNumber: serialNumber,
                   status: validasiStatus,
                   isLoading: false,
                   additionalInfo: item
                 };
+
+                if (isRetry) {
+                  const targetIndex = updated.findIndex(r => r.serialNumber === serial);
+                  if (targetIndex !== -1) {
+                    updated[targetIndex] = newData;
+                  }
+                } else {
+                  updated[globalIndex] = newData;
+                }
               });
 
               return updated;
@@ -831,13 +929,22 @@ const Index = () => {
               if (!prev) return [];
               const updated = [...prev];
               validBatch.forEach((serial, idx) => {
-                updated[batchStartIndex + idx] = {
+                const errorData = {
                   serialNumber: serial,
                   status: "Error",
                   isLoading: false,
                   isError: true,
                   errorMessage: `Batch Error: HTTP ${response.status}`
                 };
+
+                if (isRetry) {
+                  const targetIndex = updated.findIndex(r => r.serialNumber === serial);
+                  if (targetIndex !== -1) {
+                    updated[targetIndex] = errorData;
+                  }
+                } else {
+                  updated[batchStartIndex + idx] = errorData;
+                }
               });
               return updated;
             });
@@ -858,13 +965,22 @@ const Index = () => {
               if (!prev) return [];
               const updated = [...prev];
               validBatch.forEach((serial, idx) => {
-                updated[batchStartIndex + idx] = {
+                const errorData = {
                   serialNumber: serial,
                   status: "Error",
                   isLoading: false,
                   isError: true,
                   errorMessage: errorMsg
                 };
+
+                if (isRetry) {
+                  const targetIndex = updated.findIndex(r => r.serialNumber === serial);
+                  if (targetIndex !== -1) {
+                    updated[targetIndex] = errorData;
+                  }
+                } else {
+                  updated[batchStartIndex + idx] = errorData;
+                }
               });
               return updated;
             });
@@ -1009,7 +1125,7 @@ const Index = () => {
 
     // Clear filter and restart checking
     setVoucherStatusFilter(null);
-    processVoucherSerials(failedSerials);
+    processVoucherSerials(failedSerials, true);
   }, [voucherCheckResults, processVoucherSerials]);
 
   const handleDownloadVoucherExcel = useCallback(() => {
@@ -1212,7 +1328,7 @@ const Index = () => {
           <div className="text-center">
             <h1 className="text-2xl sm:text-3xl font-bold font-display tracking-tight select-none">
               <span className="text-gradient-cyan">
-                TOOLS SERBA GUNA
+                TOOLS SEDERHANA
               </span>
             </h1>
           </div>
@@ -1436,6 +1552,13 @@ const Index = () => {
                         <span
                           onClick={() => {
                             if (!allChecksCompleted) return;
+
+                            // If currently showing failed items and list is visible, this click triggers retry
+                            if (cardStatusFilter === 'gagal' && isListVisible) {
+                              handleRetryFailedCards();
+                              return;
+                            }
+
                             setIsCardFilterLoading(true);
                             setTimeout(() => {
                               if (cardStatusFilter === 'gagal' && isListVisible) {
@@ -1448,7 +1571,7 @@ const Index = () => {
                               setIsCardFilterLoading(false);
                             }, 400);
                           }}
-                          className={`text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 transition-all select-none ${!allChecksCompleted
+                          className={`text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 transition-all select-none flex items-center gap-1 ${!allChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
                             : 'cursor-pointer hover:bg-red-900/60'
                             } ${cardStatusFilter === 'gagal' && isListVisible
@@ -1457,16 +1580,10 @@ const Index = () => {
                             }`}
                         >
                           {checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
+                          {cardStatusFilter === 'gagal' && isListVisible && checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
+                            <RefreshCw className="w-3 h-3 animate-pulse ml-1" />
+                          )}
                         </span>
-                        {cardStatusFilter === 'gagal' && isListVisible && checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
-                          <button
-                            onClick={handleRetryFailedCards}
-                            className="text-xs bg-red-900/40 text-red-500 px-1.5 py-0.5 rounded-full border border-red-500/50 hover:bg-red-900/60 transition-all"
-                            title="Proses Ulang"
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                          </button>
-                        )}
                       </h4>
                       <Progress
                         value={(checkResults.filter(r => !r.isLoading).length / checkResults.length) * 100}
@@ -1716,6 +1833,13 @@ const Index = () => {
                         <span
                           onClick={() => {
                             if (!allVoucherChecksCompleted) return;
+
+                            // If currently showing failed items and list is visible, this click triggers retry
+                            if (voucherStatusFilter === 'gagal' && isVoucherListVisible) {
+                              handleRetryFailedVouchers();
+                              return;
+                            }
+
                             setIsVoucherFilterLoading(true);
                             setTimeout(() => {
                               if (voucherStatusFilter === 'gagal' && isVoucherListVisible) {
@@ -1728,7 +1852,7 @@ const Index = () => {
                               setIsVoucherFilterLoading(false);
                             }, 400);
                           }}
-                          className={`text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 transition-all select-none ${!allVoucherChecksCompleted
+                          className={`text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 transition-all select-none flex items-center gap-1 ${!allVoucherChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
                             : 'cursor-pointer hover:bg-red-900/60'
                             } ${voucherStatusFilter === 'gagal' && isVoucherListVisible
@@ -1737,16 +1861,10 @@ const Index = () => {
                             }`}
                         >
                           {voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
+                          {voucherStatusFilter === 'gagal' && isVoucherListVisible && voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
+                            <RefreshCw className="w-3 h-3 animate-pulse ml-1" />
+                          )}
                         </span>
-                        {voucherStatusFilter === 'gagal' && isVoucherListVisible && voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
-                          <button
-                            onClick={handleRetryFailedVouchers}
-                            className="text-xs bg-red-900/40 text-red-500 px-1.5 py-0.5 rounded-full border border-red-500/50 hover:bg-red-900/60 transition-all"
-                            title="Proses Ulang"
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                          </button>
-                        )}
                       </h4>
                       <Progress
                         value={(voucherCheckResults.filter(r => !r.isLoading).length / voucherCheckResults.length) * 100}
