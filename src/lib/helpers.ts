@@ -131,7 +131,28 @@ export const fetchWithTimeout = async (url: string, options: RequestInit, timeou
 };
 
 /**
+ * Wait for online connection
+ * Returns a promise that resolves when connection is restored
+ */
+const waitForConnection = (): Promise<void> => {
+    return new Promise((resolve) => {
+        if (navigator.onLine) {
+            resolve();
+            return;
+        }
+
+        const handleOnline = () => {
+            window.removeEventListener('online', handleOnline);
+            resolve();
+        };
+
+        window.addEventListener('online', handleOnline);
+    });
+};
+
+/**
  * Fetch with retry and exponential backoff + jitter
+ * Now includes connection detection - waits for online before each attempt
  */
 export const fetchWithRetry = async (
     url: string,
@@ -141,6 +162,9 @@ export const fetchWithRetry = async (
     baseDelay = 1000
 ): Promise<Response> => {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        // Wait for connection before attempting fetch
+        await waitForConnection();
+
         try {
             const response = await fetchWithTimeout(url, options, timeoutMs);
 
@@ -160,6 +184,14 @@ export const fetchWithRetry = async (
 
             return response;
         } catch (error: any) {
+            // Check if we're offline - wait for connection
+            if (!navigator.onLine) {
+                await waitForConnection();
+                // Reset attempt to retry from current position
+                attempt--;
+                continue;
+            }
+
             if (error.name === 'AbortError' || attempt >= maxRetries) {
                 throw error;
             }

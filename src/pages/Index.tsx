@@ -106,6 +106,14 @@ const Index = () => {
   const [voucherLogMessages, setVoucherLogMessages] = useState<LogMessage[]>([]);
   const [isVoucherListVisible, setIsVoucherListVisible] = useState(false);
 
+  // Connection status state
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [wasOffline, setWasOffline] = useState(false);
+  const [isRetryDialogOpen, setIsRetryDialogOpen] = useState(false);
+  const [isVoucherRetryDialogOpen, setIsVoucherRetryDialogOpen] = useState(false);
+  const [failedCardCount, setFailedCardCount] = useState(0);
+  const [failedVoucherCount, setFailedVoucherCount] = useState(0);
+
   // Handler functions for multiple rows
   const handleAddRow = useCallback(() => {
     if (voucherInputRows.length >= 50) return; // Max 50 rows
@@ -189,7 +197,68 @@ const Index = () => {
     }
   }, [voucherCheckResults]);
 
+  // Connection status detection
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      // Dismiss offline toast
+      toast.dismiss("offline-toast");
 
+      if (wasOffline) {
+        // Check for failed card items
+        if (checkResults && checkResults.length > 0) {
+          const failedCards = checkResults.filter(r => r.isError || r.status?.toLowerCase() === "unknown");
+          if (failedCards.length > 0) {
+            setFailedCardCount(failedCards.length);
+            setIsRetryDialogOpen(true);
+          }
+        }
+
+        // Check for failed voucher items
+        if (voucherCheckResults && voucherCheckResults.length > 0) {
+          const failedVouchers = voucherCheckResults.filter(r => r.isError || r.status?.toLowerCase() === "unknown");
+          if (failedVouchers.length > 0) {
+            setFailedVoucherCount(failedVouchers.length);
+            setIsVoucherRetryDialogOpen(true);
+          }
+        }
+
+        // Show success toast if no failed items to retry
+        if ((!checkResults || checkResults.filter(r => r.isError).length === 0) &&
+          (!voucherCheckResults || voucherCheckResults.filter(r => r.isError).length === 0)) {
+          toast.success("Koneksi tersambung kembali!", {
+            duration: 3000,
+            icon: "✅",
+          });
+        }
+
+        setWasOffline(false);
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setWasOffline(true);
+      toast.error("Koneksi internet terputus! Proses dijeda...", {
+        duration: Infinity,
+        id: "offline-toast",
+        icon: "⚠️",
+      });
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Check initial state
+    if (!navigator.onLine) {
+      handleOffline();
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [wasOffline]);
 
   const processNumbers = async (numbers: string[]) => {
     // Check network quality and get optimal settings
@@ -561,6 +630,30 @@ const Index = () => {
     setCardStatusFilter(null);
     processNumbers(failedNumbers);
   }, [checkResults, processNumbers]);
+
+  // Retry from connection restore dialog - Card
+  const handleRetryFromDialog = useCallback(() => {
+    setIsRetryDialogOpen(false);
+    toast.success("Melanjutkan proses untuk item yang gagal...", { duration: 2000 });
+    handleRetryFailedCards();
+  }, [handleRetryFailedCards]);
+
+  // Retry from connection restore dialog - Voucher
+  const handleVoucherRetryFromDialog = useCallback(() => {
+    setIsVoucherRetryDialogOpen(false);
+    toast.success("Melanjutkan proses untuk voucher yang gagal...", { duration: 2000 });
+
+    if (!voucherCheckResults) return;
+
+    const failedSerials = voucherCheckResults
+      .filter(r => r.isError || r.status?.toLowerCase() === "unknown")
+      .map(r => r.serialNumber);
+
+    if (failedSerials.length === 0) return;
+
+    setVoucherStatusFilter(null);
+    processVoucherSerials(failedSerials);
+  }, [voucherCheckResults]);
 
   // Voucher processing functions
   const processVoucherSerials = async (serials: string[]) => {
@@ -1745,6 +1838,42 @@ const Index = () => {
               // Keep errorRowId to maintain red border until user fixes it
             }}>
               OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Connection Restore Retry Dialog - Card */}
+      <AlertDialog open={isRetryDialogOpen} onOpenChange={setIsRetryDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Koneksi Tersambung Kembali</AlertDialogTitle>
+            <AlertDialogDescription>
+              Koneksi internet telah pulih. Terdapat {failedCardCount} nomor yang gagal diproses. Apakah Anda ingin melanjutkan proses untuk nomor-nomor tersebut?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsRetryDialogOpen(false)}>Tidak</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRetryFromDialog}>
+              Ya, Lanjutkan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Connection Restore Retry Dialog - Voucher */}
+      <AlertDialog open={isVoucherRetryDialogOpen} onOpenChange={setIsVoucherRetryDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Koneksi Tersambung Kembali</AlertDialogTitle>
+            <AlertDialogDescription>
+              Koneksi internet telah pulih. Terdapat {failedVoucherCount} voucher yang gagal diproses. Apakah Anda ingin melanjutkan proses untuk voucher tersebut?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsVoucherRetryDialogOpen(false)}>Tidak</AlertDialogCancel>
+            <AlertDialogAction onClick={handleVoucherRetryFromDialog}>
+              Ya, Lanjutkan
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
