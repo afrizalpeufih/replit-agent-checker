@@ -91,6 +91,12 @@ const Index = () => {
   const [cardStatusFilter, setCardStatusFilter] = useState<string | null>(null);
   const [voucherStatusFilter, setVoucherStatusFilter] = useState<string | null>(null);
 
+  // Loading blur state for interactive elements
+  const [isCardFilterLoading, setIsCardFilterLoading] = useState(false);
+  const [isVoucherFilterLoading, setIsVoucherFilterLoading] = useState(false);
+  const [isCardListToggleLoading, setIsCardListToggleLoading] = useState(false);
+  const [isVoucherListToggleLoading, setIsVoucherListToggleLoading] = useState(false);
+
   // Log view state for large batches
   const [showLogView, setShowLogView] = useState(false);
   const [logMessages, setLogMessages] = useState<LogMessage[]>([]);
@@ -151,18 +157,37 @@ const Index = () => {
   const logEndRef = useRef<HTMLDivElement>(null);
   const voucherLogEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll effect
+  // Auto-show list when all checks complete (with blur effect)
   useEffect(() => {
-    if (showLogView && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (checkResults && checkResults.length > 0) {
+      const allDone = checkResults.every(r => !r.isLoading);
+      if (allDone && !isListVisible) {
+        // Trigger blur effect and show list
+        setIsCardFilterLoading(true);
+        setTimeout(() => {
+          setCardStatusFilter(null); // Show all (no filter)
+          setIsListVisible(true);
+          setIsCardFilterLoading(false);
+        }, 400);
+      }
     }
-  }, [logMessages, showLogView]);
+  }, [checkResults]);
 
+  // Auto-show voucher list when all checks complete (with blur effect)
   useEffect(() => {
-    if (showVoucherLogView && voucherLogEndRef.current) {
-      voucherLogEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (voucherCheckResults && voucherCheckResults.length > 0) {
+      const allDone = voucherCheckResults.every(r => !r.isLoading);
+      if (allDone && !isVoucherListVisible) {
+        // Trigger blur effect and show list
+        setIsVoucherFilterLoading(true);
+        setTimeout(() => {
+          setVoucherStatusFilter(null); // Show all (no filter)
+          setIsVoucherListVisible(true);
+          setIsVoucherFilterLoading(false);
+        }, 400);
+      }
     }
-  }, [voucherLogMessages, showVoucherLogView]);
+  }, [voucherCheckResults]);
 
 
 
@@ -1077,7 +1102,16 @@ const Index = () => {
   }, [voucherCheckResults, voucherStatusFilter]);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
+      {/* Loading Blur Overlay */}
+      {(isCardFilterLoading || isVoucherFilterLoading || isCardListToggleLoading || isVoucherListToggleLoading) && (
+        <div className="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white/90 rounded-full p-4 shadow-xl">
+            <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="border-b border-border/50 bg-background/40 backdrop-blur-md sticky top-0 z-50">
         <div className="flex items-center justify-center px-4 sm:px-6 py-4 relative">
@@ -1204,18 +1238,50 @@ const Index = () => {
 
                   {/* Stats & Progress */}
                   {checkResults && (
-                    <div className={`flex flex-col sm:flex-row sm:items-center gap-4 transition-all ${showLogView ? 'bg-[#0a0a0a] border border-border/10 border-b-0 rounded-t-lg p-4 mt-4 -mb-px relative z-10 shadow-sm' : 'mt-4'}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 transition-all mt-4">
                       <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
                         Hasil Pengecekan
-                        <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                        <span
+                          onClick={() => {
+                            if (allChecksCompleted) {
+                              setIsCardFilterLoading(true);
+                              setTimeout(() => {
+                                setCardStatusFilter(null);
+                                setIsListVisible(!isListVisible);
+                                setIsCardFilterLoading(false);
+                              }, 400);
+                            }
+                          }}
+                          className={`text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full transition-all select-none ${!allChecksCompleted
+                            ? 'cursor-not-allowed opacity-50'
+                            : 'cursor-pointer hover:bg-primary/30'
+                            } ${isListVisible && !cardStatusFilter
+                              ? 'ring-2 ring-primary/50 shadow-lg shadow-primary/30'
+                              : ''
+                            }`}
+                        >
                           {checkResults.filter(r => !r.isLoading).length}/{checkResults.length} Nomor
                         </span>
                         <span
-                          onClick={() => allChecksCompleted && setCardStatusFilter(cardStatusFilter === 'aktif' ? null : 'aktif')}
+                          onClick={() => {
+                            if (allChecksCompleted) {
+                              setIsCardFilterLoading(true);
+                              setTimeout(() => {
+                                if (cardStatusFilter === 'aktif' && isListVisible) {
+                                  setCardStatusFilter(null);
+                                  setIsListVisible(false);
+                                } else {
+                                  setCardStatusFilter('aktif');
+                                  setIsListVisible(true);
+                                }
+                                setIsCardFilterLoading(false);
+                              }, 400);
+                            }
+                          }}
                           className={`text-xs px-2 py-0.5 rounded-full transition-all select-none ${!allChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
-                            : 'cursor-pointer hover:scale-105'
-                            } ${cardStatusFilter === 'aktif'
+                            : 'cursor-pointer'
+                            } ${cardStatusFilter === 'aktif' && isListVisible
                               ? 'bg-success text-white shadow-lg shadow-success/50 ring-2 ring-success/50'
                               : 'bg-success/20 text-success hover:bg-success/30'
                             }`}
@@ -1223,11 +1289,25 @@ const Index = () => {
                           {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && (r.status?.toLowerCase() === "aktif" || r.status?.toLowerCase() === "mantap" || r.status?.toLowerCase() === "success")).length} Aktif
                         </span>
                         <span
-                          onClick={() => allChecksCompleted && setCardStatusFilter(cardStatusFilter === 'masa-tenggang' ? null : 'masa-tenggang')}
+                          onClick={() => {
+                            if (allChecksCompleted) {
+                              setIsCardFilterLoading(true);
+                              setTimeout(() => {
+                                if (cardStatusFilter === 'masa-tenggang' && isListVisible) {
+                                  setCardStatusFilter(null);
+                                  setIsListVisible(false);
+                                } else {
+                                  setCardStatusFilter('masa-tenggang');
+                                  setIsListVisible(true);
+                                }
+                                setIsCardFilterLoading(false);
+                              }, 400);
+                            }
+                          }}
                           className={`text-xs px-2 py-0.5 rounded-full transition-all select-none ${!allChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
-                            : 'cursor-pointer hover:scale-105'
-                            } ${cardStatusFilter === 'masa-tenggang'
+                            : 'cursor-pointer'
+                            } ${cardStatusFilter === 'masa-tenggang' && isListVisible
                               ? 'bg-yellow-500 text-white shadow-lg shadow-yellow-500/50 ring-2 ring-yellow-500/50'
                               : 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
                             }`}
@@ -1235,11 +1315,25 @@ const Index = () => {
                           {checkResults.filter(r => !r.isLoading && !r.isError && r.masa_tenggung && r.masa_tenggung !== "N/A" && r.status?.toLowerCase() === "masa tenggang").length} Masa Tenggang
                         </span>
                         <span
-                          onClick={() => allChecksCompleted && setCardStatusFilter(cardStatusFilter === 'tidak-aktif' ? null : 'tidak-aktif')}
+                          onClick={() => {
+                            if (allChecksCompleted) {
+                              setIsCardFilterLoading(true);
+                              setTimeout(() => {
+                                if (cardStatusFilter === 'tidak-aktif' && isListVisible) {
+                                  setCardStatusFilter(null);
+                                  setIsListVisible(false);
+                                } else {
+                                  setCardStatusFilter('tidak-aktif');
+                                  setIsListVisible(true);
+                                }
+                                setIsCardFilterLoading(false);
+                              }, 400);
+                            }
+                          }}
                           className={`text-xs px-2 py-0.5 rounded-full transition-all select-none ${!allChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
-                            : 'cursor-pointer hover:scale-105'
-                            } ${cardStatusFilter === 'tidak-aktif'
+                            : 'cursor-pointer'
+                            } ${cardStatusFilter === 'tidak-aktif' && isListVisible
                               ? 'bg-destructive text-white shadow-lg shadow-destructive/50 ring-2 ring-destructive/50'
                               : 'bg-destructive/20 text-destructive hover:bg-destructive/30'
                             }`}
@@ -1249,20 +1343,29 @@ const Index = () => {
                         <span
                           onClick={() => {
                             if (!allChecksCompleted) return;
-                            if (cardStatusFilter === 'gagal') {
-                              handleRetryFailedCards();
-                            } else {
-                              setCardStatusFilter('gagal');
-                            }
+                            setIsCardFilterLoading(true);
+                            setTimeout(() => {
+                              if (cardStatusFilter === 'gagal' && isListVisible) {
+                                setCardStatusFilter(null);
+                                setIsListVisible(false);
+                              } else {
+                                setCardStatusFilter('gagal');
+                                setIsListVisible(true);
+                              }
+                              setIsCardFilterLoading(false);
+                            }, 400);
                           }}
                           className={`text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 transition-all select-none ${!allChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
                             : 'cursor-pointer hover:bg-red-900/60'
+                            } ${cardStatusFilter === 'gagal' && isListVisible
+                              ? 'ring-2 ring-red-500/50 shadow-lg shadow-red-500/30'
+                              : ''
                             }`}
                         >
                           {checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
                         </span>
-                        {cardStatusFilter === 'gagal' && checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
+                        {cardStatusFilter === 'gagal' && isListVisible && checkResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
                           <button
                             onClick={handleRetryFailedCards}
                             className="text-xs bg-red-900/40 text-red-500 px-1.5 py-0.5 rounded-full border border-red-500/50 hover:bg-red-900/60 transition-all"
@@ -1294,79 +1397,15 @@ const Index = () => {
                 </div>
               )}
 
-              {/* Results List or Log View */}
-              {showLogView ? (
-                <>
-                  {/* Log Console with Integrated Button */}
-                  <div className="mt-0 bg-[#0a0a0a] rounded-b-lg rounded-t-none border border-border/10 border-t-0 shadow-lg relative group flex flex-col">
-                    {/* Scrollable Content - ~5 lines height */}
-                    <div className="h-32 bg-[#0a0a0a] rounded-none p-4 font-mono text-xs overflow-hidden border-0 relative">
-                      <div className="absolute inset-0 p-4 flex flex-col justify-end">
-                        {logMessages.length === 0 ? (
-                          <div className="text-gray-500 italic">Initializing check...</div>
-                        ) : (
-                          logMessages.map((log, idx) => {
-                            const isError = log.type === 'ERROR';
-                            const isSuccess = log.type === 'SUCCESS';
-                            const isProgress = log.message.includes('✅');
-
-                            return (
-                              <div
-                                key={idx}
-                                className={`leading-relaxed py-0.5 ${isError ? 'text-red-400 font-bold' :
-                                  isSuccess ? 'text-green-500 font-bold' :
-                                    isProgress ? 'text-green-500' :
-                                      'text-gray-300'
-                                  }`}
-                              >
-                                <span className="opacity-50 mr-2">{log.timestamp} [{log.type}]</span>
-                                <span>{log.message}</span>
-                              </div>
-                            );
-                          })
-                        )}
-                        <div ref={logEndRef} />
-                      </div>
-                    </div>
-                    {/* Show List Button - Bottom Full Width */}
-                    <button
-                      onClick={() => setIsListVisible(!isListVisible)}
-                      disabled={isChecking}
-                      className={`
-                          w-full py-2 text-[10px] font-bold uppercase tracking-wider transition-all rounded-b-lg
-                          ${isChecking
-                          ? 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'
-                          : 'bg-primary/20 text-primary hover:bg-primary/30 border-t border-primary/30'
-                        }
-                        `}
-                    >
-                      {isListVisible ? 'Hide List' : 'Show List'}
-                    </button>
+              {/* Results List - Shows when isListVisible is true */}
+              {isListVisible && filteredCheckResults && (
+                <div className="mt-6 sm:mt-8 space-y-4">
+                  <div className="grid gap-4">
+                    {filteredCheckResults.map((result) => (
+                      <CheckResultCard key={result.number} result={result} />
+                    ))}
                   </div>
-
-                  {/* Results List - Only visible when isListVisible is true */}
-                  {isListVisible && filteredCheckResults && (
-                    <div className="mt-6 sm:mt-8 space-y-4">
-                      <div className="grid gap-4">
-                        {filteredCheckResults.map((result) => (
-                          <CheckResultCard key={result.number} result={result} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                // Normal view for small batches (<= 50 numbers)
-                filteredCheckResults && (
-                  <div className="mt-6 sm:mt-8 space-y-4">
-                    <div className="hidden"></div> {/* Spacer placeholder */}
-                    <div className="grid gap-4">
-                      {filteredCheckResults.map((result) => (
-                        <CheckResultCard key={result.number} result={result} />
-                      ))}
-                    </div>
-                  </div>
-                )
+                </div>
               )}
             </div>
           )}
@@ -1482,9 +1521,8 @@ const Index = () => {
                 </>
               )}
 
-              {/* Sticky Header for Results (Actions + Stats) */}
               {(isCheckingVoucher || voucherCheckResults) && (
-                <div className={`sticky top-[76px] z-40 bg-background/95 backdrop-blur-md pt-2 -mx-4 px-4 sm:-mx-6 sm:px-6 transition-all ${showVoucherLogView ? 'pb-0 border-b-0' : 'pb-4 border-b border-border/10'}`}>
+                <div className="sticky top-[76px] z-40 bg-background/95 backdrop-blur-md pt-2 -mx-4 px-4 sm:-mx-6 sm:px-6 transition-all pb-4 border-b border-border/10">
                   {/* Cancel & Download Buttons */}
                   <div className="flex gap-3">
                     <button
@@ -1506,18 +1544,50 @@ const Index = () => {
 
                   {/* Stats & Progress */}
                   {voucherCheckResults && (
-                    <div className={`flex flex-col sm:flex-row sm:items-center gap-4 transition-all ${showVoucherLogView ? 'bg-[#0a0a0a] border border-border/10 border-b-0 rounded-t-lg p-4 mt-4 -mb-px relative z-10 shadow-sm' : 'mt-4'}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 transition-all mt-4">
                       <h4 className="text-foreground font-semibold font-display flex flex-wrap items-center gap-2 shrink-0">
                         Hasil Pengecekan
-                        <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                        <span
+                          onClick={() => {
+                            if (allVoucherChecksCompleted) {
+                              setIsVoucherFilterLoading(true);
+                              setTimeout(() => {
+                                setVoucherStatusFilter(null);
+                                setIsVoucherListVisible(!isVoucherListVisible);
+                                setIsVoucherFilterLoading(false);
+                              }, 400);
+                            }
+                          }}
+                          className={`text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full transition-all select-none ${!allVoucherChecksCompleted
+                            ? 'cursor-not-allowed opacity-50'
+                            : 'cursor-pointer hover:bg-primary/30'
+                            } ${isVoucherListVisible && !voucherStatusFilter
+                              ? 'ring-2 ring-primary/50 shadow-lg shadow-primary/30'
+                              : ''
+                            }`}
+                        >
                           {voucherCheckResults.filter(r => !r.isLoading).length}/{voucherCheckResults.length} Voucher
                         </span>
                         <span
-                          onClick={() => allVoucherChecksCompleted && setVoucherStatusFilter(voucherStatusFilter === 'injected' ? null : 'injected')}
+                          onClick={() => {
+                            if (allVoucherChecksCompleted) {
+                              setIsVoucherFilterLoading(true);
+                              setTimeout(() => {
+                                if (voucherStatusFilter === 'injected' && isVoucherListVisible) {
+                                  setVoucherStatusFilter(null);
+                                  setIsVoucherListVisible(false);
+                                } else {
+                                  setVoucherStatusFilter('injected');
+                                  setIsVoucherListVisible(true);
+                                }
+                                setIsVoucherFilterLoading(false);
+                              }, 400);
+                            }
+                          }}
                           className={`text-xs px-2 py-0.5 rounded-full transition-all select-none ${!allVoucherChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
-                            : 'cursor-pointer hover:scale-105'
-                            } ${voucherStatusFilter === 'injected'
+                            : 'cursor-pointer'
+                            } ${voucherStatusFilter === 'injected' && isVoucherListVisible
                               ? 'bg-success text-white shadow-lg shadow-success/50 ring-2 ring-success/50'
                               : 'bg-success/20 text-success hover:bg-success/30'
                             }`}
@@ -1525,11 +1595,25 @@ const Index = () => {
                           {voucherCheckResults.filter(r => !r.isLoading && !r.isError && r.status?.toLowerCase() === "injected").length} Injected
                         </span>
                         <span
-                          onClick={() => allVoucherChecksCompleted && setVoucherStatusFilter(voucherStatusFilter === 'not-inject' ? null : 'not-inject')}
+                          onClick={() => {
+                            if (allVoucherChecksCompleted) {
+                              setIsVoucherFilterLoading(true);
+                              setTimeout(() => {
+                                if (voucherStatusFilter === 'not-inject' && isVoucherListVisible) {
+                                  setVoucherStatusFilter(null);
+                                  setIsVoucherListVisible(false);
+                                } else {
+                                  setVoucherStatusFilter('not-inject');
+                                  setIsVoucherListVisible(true);
+                                }
+                                setIsVoucherFilterLoading(false);
+                              }, 400);
+                            }
+                          }}
                           className={`text-xs px-2 py-0.5 rounded-full transition-all select-none ${!allVoucherChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
-                            : 'cursor-pointer hover:scale-105'
-                            } ${voucherStatusFilter === 'not-inject'
+                            : 'cursor-pointer'
+                            } ${voucherStatusFilter === 'not-inject' && isVoucherListVisible
                               ? 'bg-destructive text-white shadow-lg shadow-destructive/50 ring-2 ring-destructive/50'
                               : 'bg-destructive/20 text-destructive hover:bg-destructive/30'
                             }`}
@@ -1539,20 +1623,29 @@ const Index = () => {
                         <span
                           onClick={() => {
                             if (!allVoucherChecksCompleted) return;
-                            if (voucherStatusFilter === 'gagal') {
-                              handleRetryFailedVouchers();
-                            } else {
-                              setVoucherStatusFilter('gagal');
-                            }
+                            setIsVoucherFilterLoading(true);
+                            setTimeout(() => {
+                              if (voucherStatusFilter === 'gagal' && isVoucherListVisible) {
+                                setVoucherStatusFilter(null);
+                                setIsVoucherListVisible(false);
+                              } else {
+                                setVoucherStatusFilter('gagal');
+                                setIsVoucherListVisible(true);
+                              }
+                              setIsVoucherFilterLoading(false);
+                            }, 400);
                           }}
                           className={`text-xs bg-red-900/40 text-red-500 px-2 py-0.5 rounded-full border border-red-500/50 transition-all select-none ${!allVoucherChecksCompleted
                             ? 'cursor-not-allowed opacity-50'
                             : 'cursor-pointer hover:bg-red-900/60'
+                            } ${voucherStatusFilter === 'gagal' && isVoucherListVisible
+                              ? 'ring-2 ring-red-500/50 shadow-lg shadow-red-500/30'
+                              : ''
                             }`}
                         >
                           {voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length} Gagal
                         </span>
-                        {voucherStatusFilter === 'gagal' && voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
+                        {voucherStatusFilter === 'gagal' && isVoucherListVisible && voucherCheckResults.filter(r => !r.isLoading && (r.isError || r.status?.toLowerCase() === "unknown")).length > 0 && (
                           <button
                             onClick={handleRetryFailedVouchers}
                             className="text-xs bg-red-900/40 text-red-500 px-1.5 py-0.5 rounded-full border border-red-500/50 hover:bg-red-900/60 transition-all"
@@ -1571,83 +1664,19 @@ const Index = () => {
                 </div>
               )}
 
-              {/* Results List or Log View */}
-              {showVoucherLogView ? (
-                <>
-                  {/* Log Console with Integrated Button */}
-                  <div className="mt-0 bg-[#0a0a0a] rounded-b-lg rounded-t-none border border-border/10 border-t-0 shadow-lg relative group flex flex-col">
-                    {/* Scrollable Content - ~5 lines height */}
-                    <div className="h-32 bg-[#0a0a0a] rounded-none p-4 font-mono text-xs overflow-hidden border-0 relative">
-                      <div className="absolute inset-0 p-4 flex flex-col justify-end">
-                        {voucherLogMessages.length === 0 ? (
-                          <div className="text-gray-500 italic">Initializing check...</div>
-                        ) : (
-                          voucherLogMessages.map((log, idx) => {
-                            const isError = log.type === 'ERROR';
-                            const isSuccess = log.type === 'SUCCESS';
-                            const isProgress = log.message.includes('✅');
-
-                            return (
-                              <div
-                                key={idx}
-                                className={`leading-relaxed py-0.5 ${isError ? 'text-red-400 font-bold' :
-                                  isSuccess ? 'text-green-500 font-bold' :
-                                    isProgress ? 'text-green-500' :
-                                      'text-gray-300'
-                                  }`}
-                              >
-                                <span className="opacity-50 mr-2">{log.timestamp} [{log.type}]</span>
-                                <span>{log.message}</span>
-                              </div>
-                            );
-                          })
-                        )}
-                        <div ref={voucherLogEndRef} />
-                      </div>
-                    </div>
-                    {/* Show List Button - Bottom Full Width */}
-                    <button
-                      onClick={() => setIsVoucherListVisible(!isVoucherListVisible)}
-                      disabled={isCheckingVoucher}
-                      className={`
-                          w-full py-2 text-[10px] font-bold uppercase tracking-wider transition-all rounded-b-lg
-                          ${isCheckingVoucher
-                          ? 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'
-                          : 'bg-primary/20 text-primary hover:bg-primary/30 border-t border-primary/30'
-                        }
-                        `}
-                    >
-                      {isVoucherListVisible ? 'Hide List' : 'Show List'}
-                    </button>
+              {/* Results List - Shows when isVoucherListVisible is true */}
+              {isVoucherListVisible && filteredVoucherCheckResults && (
+                <div className="mt-6 sm:mt-8 space-y-4">
+                  <div className="grid gap-4">
+                    {filteredVoucherCheckResults.map((result) => (
+                      <VoucherCheckResultCard
+                        key={result.serialNumber}
+                        result={result}
+                        initialExpanded={filteredVoucherCheckResults.length === 1}
+                      />
+                    ))}
                   </div>
-
-                  {/* Results List - Only visible when isVoucherListVisible is true */}
-                  {isVoucherListVisible && filteredVoucherCheckResults && (
-                    <div className="mt-6 sm:mt-8 space-y-4">
-                      <div className="grid gap-4">
-                        {filteredVoucherCheckResults.map((result) => (
-                          <VoucherCheckResultCard
-                            key={result.serialNumber}
-                            result={result}
-                            initialExpanded={filteredVoucherCheckResults.length === 1}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                // Normal view for small batches (<= 150 serials)
-                filteredVoucherCheckResults && (
-                  <div className="mt-6 sm:mt-8 space-y-4">
-                    <div className="hidden"></div> {/* Spacer placeholder */}
-                    <div className="grid gap-4">
-                      {filteredVoucherCheckResults.map((result) => (
-                        <VoucherCheckResultCard key={result.serialNumber} result={result} />
-                      ))}
-                    </div>
-                  </div>
-                )
+                </div>
               )}
             </div>
           )}
